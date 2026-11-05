@@ -151,14 +151,12 @@ public partial class MainWindow
         var directory = Path.GetDirectoryName(FileService.SafePath(_workspace.Root, module.Path))!;
         var localWrapper = Path.Combine(directory, "mvnw.cmd");
         var executable = File.Exists(localWrapper) ? localWrapper : File.Exists(rootWrapper) ? rootWrapper : "mvn.cmd";
-        // PowerShell encoded input quotes each argument separately, including shell metacharacters.
-        string Quote(string input) => "'" + input.Replace("'", "''") + "'";
-        var script = "& " + Quote(executable) + " " + string.Join(' ', arguments.Select(Quote)) + "; exit $LASTEXITCODE";
+        var encodedScript = ProcessRunner.PowerShellInvocation(executable, arguments);
         _commandBusy = true; _command?.Dispose(); _command = new();
         ShowOutput("Maven · " + value, "构建中… 输出将在进程结束后显示，可点击停止取消。运行上限 20 分钟。");
         try
         {
-            var result = await ProcessRunner.RunAsync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Convert.ToBase64String(Encoding.Unicode.GetBytes(script))], directory, cancellationToken: _command.Token, timeoutSeconds: 1200);
+            var result = await ProcessRunner.RunAsync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encodedScript], directory, cancellationToken: _command.Token, timeoutSeconds: 1200);
             ShowOutput("Maven · " + value, result.Combined); SetStatus($"Maven 退出码 {result.ExitCode}");
         }
         catch (OperationCanceledException) { ShowOutput("Maven", "构建已停止。"); }

@@ -268,6 +268,18 @@ await Test("Child process timeout kills and releases process", async () =>
     await Throws<TimeoutException>(() => ProcessRunner.RunAsync(executable, arguments, temporary, timeoutSeconds: 1));
 });
 
+await Test("Maven-style PowerShell invocation: Unicode, quoting and missing tools", async () =>
+{
+    if (!OperatingSystem.IsWindows()) return;
+    var git = await Repository("powershell");
+    var value = "中文 'quotes' $(not-executed) & | >";
+    async Task<CommandResult> Invoke(string executable, string[] arguments) => await ProcessRunner.RunAsync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", ProcessRunner.PowerShellInvocation(executable, arguments)], git.Root);
+    (await Invoke("git", ["config", "test.literal", value])).EnsureSuccess();
+    Equal(value, (await Invoke("git", ["config", "test.literal"])).EnsureSuccess().Output.TrimEnd());
+    var missing = await Invoke("idea-lite-missing-maven-command.cmd", ["test"]);
+    Equal(1, missing.ExitCode); True(missing.Error.Contains("idea-lite-missing-maven-command.cmd"));
+});
+
 Console.WriteLine($"\n{passed} passed, {failed} failed.");
 if (failed == 0 && !args.Contains("--keep"))
 {

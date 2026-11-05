@@ -102,4 +102,13 @@ public static class ProcessRunner
         if (started) result.Add(current.ToString());
         return result.ToArray();
     }
+
+    public static string PowerShellInvocation(string executable, IEnumerable<string> arguments)
+    {
+        static string Quote(string input) => "'" + input.Replace("'", "''") + "'";
+        var script = "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); $OutputEncoding=[Console]::OutputEncoding; try { & " +
+            Quote(executable) + " " + string.Join(' ', arguments.Select(Quote)) +
+            "; if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }; exit 0 } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }";
+        return Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+    }
 }
