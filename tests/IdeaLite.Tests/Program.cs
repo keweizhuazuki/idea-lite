@@ -79,6 +79,9 @@ await Test("External modifications are protected", async () =>
     await Throws<FileChangedException>(() => FileService.SaveAsync(file, "mine"));
     Equal("external", await File.ReadAllTextAsync(path));
     await FileService.SaveAsync(file, "mine", true); Equal("mine", await File.ReadAllTextAsync(path));
+    file = await FileService.ReadAsync(path);
+    await File.WriteAllBytesAsync(path, new byte[FileService.MaxFileBytes + 1]);
+    await Throws<FileChangedException>(() => FileService.SaveAsync(file, "mine"));
 });
 
 await Test("Traversal, oversized and binary inputs are refused", async () =>

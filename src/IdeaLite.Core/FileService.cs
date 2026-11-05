@@ -76,8 +76,7 @@ public static class FileService
         if (!overwriteExternal)
         {
             if (!File.Exists(file.Path)) throw new FileChangedException(file.Path);
-            var bytes = await File.ReadAllBytesAsync(file.Path, token);
-            if (Convert.ToHexString(SHA256.HashData(bytes)) != file.Hash) throw new FileChangedException(file.Path);
+            if (await HashCurrentFileAsync(file.Path, token) != file.Hash) throw new FileChangedException(file.Path);
         }
         var normalized = file.Style.Apply(text);
         var encoding = file.Style.EncodingOverride ?? file.Encoding;
@@ -90,12 +89,27 @@ public static class FileService
             if (!overwriteExternal)
             {
                 if (!File.Exists(file.Path)) throw new FileChangedException(file.Path);
-                var latest = await File.ReadAllBytesAsync(file.Path, token);
-                if (Convert.ToHexString(SHA256.HashData(latest)) != file.Hash) throw new FileChangedException(file.Path);
+                if (await HashCurrentFileAsync(file.Path, token) != file.Hash) throw new FileChangedException(file.Path);
             }
             File.Move(temporary, file.Path, true);
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
         return file with { Text = normalized, Encoding = encoding, Hash = Convert.ToHexString(SHA256.HashData(output)) };
+    }
+
+    private static async Task<string> HashCurrentFileAsync(string path, CancellationToken token)
+    {
+        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        if (stream.Length > MaxFileBytes) throw new FileChangedException(path);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        var buffer = new byte[8192];
+        int length = 0, read;
+        while ((read = await stream.ReadAsync(buffer, token)) > 0)
+        {
+            length += read;
+            if (length > MaxFileBytes) throw new FileChangedException(path);
+            hash.AppendData(buffer, 0, read);
+        }
+        return Convert.ToHexString(hash.GetHashAndReset());
     }
 }
