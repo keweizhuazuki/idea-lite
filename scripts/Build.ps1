@@ -25,7 +25,7 @@ function Invoke-Dotnet {
 }
 Push-Location -LiteralPath $repositoryPath
 try {
-    Invoke-Dotnet restore IdeaLite.slnx --locked-mode
+    Invoke-Dotnet restore IdeaLite.slnx --locked-mode --force
     Invoke-Dotnet build IdeaLite.slnx -c Release --no-restore --nologo
     if (-not $SkipTests) { Invoke-Dotnet run --project tests/IdeaLite.Tests -c Release --no-build }
     $artifactsPath = Join-Path $repositoryPath 'artifacts'
@@ -36,7 +36,7 @@ try {
         $name = 'IdeaLite-win-x64-' + $mode.ToLowerInvariant()
         $outputPath = Join-Path $artifactsPath $name
         $selfContained = if ($mode -eq 'Portable') { 'true' } else { 'false' }
-        Invoke-Dotnet publish src/IdeaLite/IdeaLite.csproj -c Release -r win-x64 --self-contained $selfContained -o $outputPath '-p:DebugType=None' '-p:DebugSymbols=false'
+        Invoke-Dotnet publish src/IdeaLite/IdeaLite.csproj -c Release -r win-x64 --self-contained $selfContained -o $outputPath '-p:DebugType=None' '-p:DebugSymbols=false' '-p:RestoreLockedMode=true'
         Copy-Item -LiteralPath (Join-Path $repositoryPath 'LICENSE'),(Join-Path $repositoryPath 'THIRD-PARTY-NOTICES.md'),(Join-Path $repositoryPath 'README.md') -Destination $outputPath -Force
         Copy-Item -LiteralPath (Join-Path $repositoryPath 'licenses') -Destination $outputPath -Recurse -Force
         Copy-Item -LiteralPath (Join-Path $repositoryPath 'docs') -Destination $outputPath -Recurse -Force

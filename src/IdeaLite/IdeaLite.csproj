@@ -4,7 +4,6 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
     <AssemblyName>IdeaLite</AssemblyName>
-    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <Description>A small native code editor and Git workbench for Java projects.</Description>
   </PropertyGroup>
