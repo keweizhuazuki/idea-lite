@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/IdeaLite.Core/IdeaLite.Core.csproj" />
+    <Project Path="src/IdeaLite/IdeaLite.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/IdeaLite.Tests/IdeaLite.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,100 @@
+<Window x:Class="IdeaLite.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ae="http://icsharpcode.net/sharpdevelop/avalonedit"
+    Title="Idea Lite — 轻装看代码" Style="{StaticResource {x:Type Window}}" Width="1460" Height="920" MinWidth="1060" MinHeight="650"
+    WindowStartupLocation="CenterScreen" PreviewKeyDown="OnKeyDown" PreviewKeyUp="OnKeyUp" Closing="OnClosing" Activated="OnActivated">
+  <Grid>
+    <Grid.RowDefinitions><RowDefinition Height="66"/><RowDefinition Height="*"/><RowDefinition Height="28"/></Grid.RowDefinitions>
+    <Border Background="{StaticResource Panel}" BorderBrush="{StaticResource Stroke}" BorderThickness="0,0,0,1">
+      <Grid Margin="16,0,12,0">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <StackPanel Orientation="Horizontal">
+          <Border Background="#28493F" CornerRadius="8" Width="34" Height="34" Margin="0,0,12,0"><TextBlock Text="il" Foreground="{StaticResource Accent}" FontWeight="Bold" FontFamily="Consolas" FontSize="21" HorizontalAlignment="Center"/></Border>
+          <StackPanel VerticalAlignment="Center"><TextBlock Text="IDEA LITE" FontWeight="SemiBold" FontSize="14"/><TextBlock Text="轻装看代码，专注每一次改动" Foreground="{StaticResource Muted}" FontSize="10" Margin="0,3,16,0"/></StackPanel>
+          <Button Content="打开项目" Click="OpenProjectClick" ToolTip="Ctrl+O"/>
+          <Button x:Name="BranchButton" Content="⑂  未打开项目" Click="BranchClick" MaxWidth="240"/>
+        </StackPanel>
+        <Button Grid.Column="1" Content="⌕   搜索文件、类型、方法…      Shift × 2" Click="SearchClick" Foreground="{StaticResource Muted}" HorizontalAlignment="Center" MinWidth="260" Margin="20,15"/>
+        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+          <Button Content="↓ 拉取" Click="PullClick" ToolTip="仅快进拉取，不自动合并"/><Button Content="↑ 推送" Click="PushClick"/>
+          <Button Content="Git ▾" Click="GitMenuClick"/><Button Content="⌨" Click="HelpClick" ToolTip="快捷键与说明"/>
+        </StackPanel>
+      </Grid>
+    </Border>
+    <Grid Grid.Row="1">
+      <Grid.ColumnDefinitions><ColumnDefinition x:Name="ExplorerColumn" Width="238" MinWidth="160"/><ColumnDefinition Width="1"/><ColumnDefinition Width="*" MinWidth="400"/><ColumnDefinition Width="1"/><ColumnDefinition x:Name="ChangesColumn" Width="295" MinWidth="245"/></Grid.ColumnDefinitions>
+      <Grid Background="{StaticResource Panel}">
+        <Grid.RowDefinitions><RowDefinition Height="45"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <DockPanel Margin="12,0,6,0"><Button DockPanel.Dock="Right" Content="↻" Click="RefreshClick" ToolTip="刷新项目与 Git · F5"/><TextBlock Text="项目文件" FontWeight="SemiBold"/><TextBlock x:Name="FileCount" Foreground="{StaticResource Muted}" Margin="9,0" FontSize="11"/></DockPanel>
+        <TextBlock Grid.Row="1" x:Name="ProjectTitle" Text="打开一个本地项目开始" Foreground="{StaticResource Accent}" Margin="14,0,10,10" TextTrimming="CharacterEllipsis"/>
+        <TreeView Grid.Row="2" x:Name="FileTree" Margin="4,0" MouseDoubleClick="TreeDoubleClick" KeyDown="TreeKeyDown">
+          <TreeView.ContextMenu><ContextMenu><MenuItem Header="打开" Click="TreeOpenClick"/><MenuItem Header="新建文件…" Click="NewFileClick"/><MenuItem Header="复制相对路径" Click="CopyPathClick"/><MenuItem Header="在资源管理器中显示" Click="RevealClick"/></ContextMenu></TreeView.ContextMenu>
+        </TreeView>
+        <Border Grid.Row="3" BorderThickness="0,1,0,0" BorderBrush="{StaticResource Stroke}" Padding="14,12"><TextBlock x:Name="IndexLabel" Text="按需索引 · 无常驻 JVM" Foreground="{StaticResource Muted}" FontSize="11" TextWrapping="Wrap"/></Border>
+      </Grid>
+      <GridSplitter Grid.Column="1"/>
+      <Grid Grid.Column="2">
+        <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <TabControl x:Name="Views" SelectionChanged="ViewChanged">
+          <TabItem Header="代码">
+            <Grid>
+              <Grid.RowDefinitions><RowDefinition Height="38"/><RowDefinition Height="34"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+              <DockPanel Background="#171B22"><Button DockPanel.Dock="Right" Content="保存" Click="SaveClick" Padding="10,3"/><ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"><StackPanel x:Name="DocumentTabs" Orientation="Horizontal"/></ScrollViewer></DockPanel>
+              <DockPanel Grid.Row="1" Margin="10,0"><Button DockPanel.Dock="Right" Content="↤" Click="BackClick" Padding="8,1" ToolTip="后退 · Alt+Left"/><TextBlock x:Name="Breadcrumb" Text="WORKSPACE / WELCOME" Foreground="{StaticResource Muted}" FontSize="11" TextTrimming="CharacterEllipsis"/></DockPanel>
+              <ae:TextEditor Grid.Row="2" x:Name="Editor" Background="{StaticResource Bg}" Foreground="{StaticResource Fg}" FontFamily="Cascadia Code, Consolas" FontSize="14" ShowLineNumbers="True" LineNumbersForeground="#596477" BorderThickness="0" Padding="8,6" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" TextChanged="EditorChanged" PreviewMouseLeftButtonDown="EditorMouseDown"/>
+              <Border Grid.Row="3" x:Name="EditorConflictBar" Visibility="Collapsed" Background="#332C22" Padding="6"><WrapPanel><TextBlock Text="下一处冲突：" Foreground="#EACA8E"/><Button Content="使用当前" Click="UseOursClick"/><Button Content="使用传入" Click="UseTheirsClick"/><Button Content="保留两者" Click="UseBothClick"/><Button Content="保存并暂存" Click="ResolveClick"/></WrapPanel></Border>
+            </Grid>
+          </TabItem>
+          <TabItem Header="差异对比">
+            <Grid>
+              <Grid.RowDefinitions><RowDefinition Height="42"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+              <DockPanel Margin="8,0"><StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><CheckBox x:Name="StagedToggle" Content="暂存区" Click="DiffModeClick"/><CheckBox x:Name="IgnoreWhitespace" Content="忽略空白" Click="DiffModeClick"/><Button Content="↑" Click="PreviousDiffClick" ToolTip="上一处差异" Padding="8,3"/><Button Content="↓" Click="NextDiffClick" ToolTip="下一处差异" Padding="8,3"/><Button Content="编辑" Click="EditChangeClick" Padding="10,3"/></StackPanel><TextBlock x:Name="DiffTitle" Text="在右侧选择一个改动" FontSize="11" TextTrimming="CharacterEllipsis"/></DockPanel>
+              <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="1"/><ColumnDefinition/></Grid.ColumnDefinitions>
+                <DockPanel><Border DockPanel.Dock="Top" Background="#292022" Padding="12,7"><TextBlock x:Name="OldLabel" Text="原始版本" Foreground="#E4ABAE" FontSize="11"/></Border><ae:TextEditor x:Name="OldEditor"/></DockPanel>
+                <GridSplitter Grid.Column="1"/>
+                <DockPanel Grid.Column="2"><Border DockPanel.Dock="Top" Background="#1D2C27" Padding="12,7"><TextBlock x:Name="NewLabel" Text="修改后的版本" Foreground="{StaticResource Accent}" FontSize="11"/></Border><ae:TextEditor x:Name="NewEditor"/></DockPanel>
+              </Grid>
+              <Border Grid.Row="2" x:Name="ConflictBar" Visibility="Collapsed" Background="#332C22" Padding="8"><StackPanel Orientation="Horizontal"><TextBlock Text="解决下一处冲突：" Foreground="#EACA8E"/><Button Content="使用当前" Click="UseOursClick"/><Button Content="使用传入" Click="UseTheirsClick"/><Button Content="保留两者" Click="UseBothClick"/><Button Content="编辑结果" Click="EditChangeClick"/><Button Content="保存并暂存" Click="ResolveClick"/></StackPanel></Border>
+            </Grid>
+          </TabItem>
+          <TabItem Header="提交树">
+            <Grid><Grid.RowDefinitions><RowDefinition Height="38"/><RowDefinition Height="2*"/><RowDefinition Height="4"/><RowDefinition Height="3*"/></Grid.RowDefinitions>
+              <DockPanel Margin="12,0"><Button DockPanel.Dock="Right" Content="刷新历史" Click="HistoryClick" Padding="10,3"/><TextBlock Text="所有本地引用 · 最近 150 条 · 双击提交查看补丁" Foreground="{StaticResource Muted}" FontSize="11"/></DockPanel>
+              <ae:TextEditor Grid.Row="1" x:Name="HistoryEditor" MouseDoubleClick="HistoryDoubleClick"/>
+              <GridSplitter Grid.Row="2" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+              <ae:TextEditor Grid.Row="3" x:Name="CommitEditor"/>
+            </Grid>
+          </TabItem>
+          <TabItem Header="Spring / Maven">
+            <Grid Margin="12"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="2*"/><RowDefinition Height="Auto"/><RowDefinition Height="3*"/></Grid.RowDefinitions>
+              <DockPanel Margin="0,0,0,8"><Button DockPanel.Dock="Right" Content="Maven 任务…" Click="MavenClick"/><TextBlock Text="MAVEN 模块与依赖" Foreground="{StaticResource Accent}" FontWeight="SemiBold"/></DockPanel>
+              <ListBox Grid.Row="1" x:Name="MavenList" MouseDoubleClick="MavenDoubleClick" SelectionChanged="MavenSelectionChanged"/>
+              <TextBlock Grid.Row="2" Text="SPRING · BEANS / HTTP ENDPOINTS / CONFIG" Foreground="{StaticResource Accent}" FontWeight="SemiBold" Margin="0,16,0,8"/>
+              <ListBox Grid.Row="3" x:Name="SpringList" MouseDoubleClick="SpringDoubleClick">
+                <ListBox.ItemTemplate><DataTemplate><StackPanel><TextBlock Text="{Binding Name}" FontFamily="Consolas"/><TextBlock Foreground="{StaticResource Muted}" FontSize="11" Margin="0,4,0,0"><Run Text="{Binding Kind}"/><Run Text="  ·  "/><Run Text="{Binding Path}"/></TextBlock></StackPanel></DataTemplate></ListBox.ItemTemplate>
+              </ListBox>
+            </Grid>
+          </TabItem>
+        </TabControl>
+        <Border x:Name="OutputPanel" Grid.Row="1" Visibility="Collapsed" BorderThickness="0,1,0,0" BorderBrush="{StaticResource Stroke}" Height="180" Background="{StaticResource Panel}">
+          <DockPanel><StackPanel DockPanel.Dock="Top" Orientation="Horizontal"><TextBlock x:Name="OutputTitle" Text="输出" Margin="12,5" Foreground="{StaticResource Accent}"/><Button Content="停止" Click="CancelCommandClick" Padding="8,1"/><Button Content="关闭" Click="CloseOutputClick" Padding="8,1"/></StackPanel><ae:TextEditor x:Name="OutputEditor"/></DockPanel>
+        </Border>
+      </Grid>
+      <GridSplitter Grid.Column="3"/>
+      <Grid Grid.Column="4" Background="{StaticResource Panel}">
+        <Grid.RowDefinitions><RowDefinition Height="45"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <DockPanel Margin="12,0,8,0"><Button DockPanel.Dock="Right" Content="↻" Click="GitRefreshClick"/><StackPanel Orientation="Horizontal"><TextBlock Text="工作区改动" FontWeight="SemiBold"/><Border Background="#2A3C34" CornerRadius="8" Margin="9,0" Padding="7,2" VerticalAlignment="Center"><TextBlock x:Name="ChangeCount" Text="0" Foreground="{StaticResource Accent}" FontSize="11"/></Border></StackPanel></DockPanel>
+        <TextBlock x:Name="GitSummary" Grid.Row="1" Text="先打开一个 Git 仓库" Foreground="{StaticResource Muted}" FontSize="11" Margin="14,0,12,10" TextWrapping="Wrap"/>
+        <ListBox Grid.Row="2" x:Name="ChangesList" SelectionMode="Extended" SelectionChanged="ChangeSelected" MouseDoubleClick="ChangeDoubleClick">
+          <ListBox.ItemTemplate><DataTemplate><Grid ToolTip="{Binding Path}"><Grid.ColumnDefinitions><ColumnDefinition Width="32"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Border Background="#293A32" CornerRadius="3" VerticalAlignment="Top" Padding="3"><TextBlock Text="{Binding Label}" Foreground="{StaticResource Accent}" FontFamily="Consolas" FontSize="11" HorizontalAlignment="Center"/></Border><StackPanel Grid.Column="1" Margin="6,0,0,0"><TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" FontSize="12"/><TextBlock Text="{Binding Directory}" Foreground="{StaticResource Muted}" FontSize="10" TextTrimming="CharacterEllipsis" Margin="0,4,0,0"/></StackPanel></Grid></DataTemplate></ListBox.ItemTemplate>
+          <ListBox.ContextMenu><ContextMenu><MenuItem Header="打开文件" Click="EditChangeClick"/><MenuItem Header="暂存所选" Click="StageClick"/><MenuItem Header="取消暂存所选" Click="UnstageClick"/><Separator/><MenuItem Header="丢弃所选工作区改动…" Click="DiscardClick"/></ContextMenu></ListBox.ContextMenu>
+        </ListBox>
+        <Border Grid.Row="3" BorderThickness="0,1,0,0" BorderBrush="{StaticResource Stroke}" Padding="10">
+          <StackPanel><WrapPanel><Button Content="+ 暂存" Click="StageClick"/><Button Content="− 取消" Click="UnstageClick"/><Button Content="全部暂存" Click="StageAllClick"/></WrapPanel><TextBox x:Name="CommitMessage" Height="76" AcceptsReturn="True" TextWrapping="Wrap" Margin="3,8,3,6" ToolTip="提交说明 · 仅提交暂存区 · Ctrl+Enter 提交"/><Button Style="{StaticResource Primary}" Content="提交暂存改动    Ctrl + Enter" Click="CommitClick"/><TextBlock Text="仅提交已暂存内容 · 推送需单独操作" Foreground="{StaticResource Muted}" FontSize="10" HorizontalAlignment="Center" Margin="0,6,0,0"/></StackPanel>
+        </Border>
+      </Grid>
+    </Grid>
+    <Border Grid.Row="2" Background="#19251F"><DockPanel Margin="12,0"><TextBlock x:Name="MemoryLabel" DockPanel.Dock="Right" Foreground="{StaticResource Accent}" FontFamily="Consolas" FontSize="11"/><TextBlock x:Name="CaretLabel" DockPanel.Dock="Right" Margin="18,0" FontSize="11"/><TextBlock x:Name="StatusLabel" Text="就绪 · Ctrl+O 打开项目 / 双击 Shift 全局搜索" FontSize="11" TextTrimming="CharacterEllipsis"/></DockPanel></Border>
+  </Grid>
+</Window>
