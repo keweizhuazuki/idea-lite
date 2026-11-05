@@ -27,7 +27,14 @@ Push-Location -LiteralPath $repositoryPath
 try {
     Invoke-Dotnet restore IdeaLite.slnx --locked-mode --force
     Invoke-Dotnet build IdeaLite.slnx -c Release --no-restore --nologo
-    if (-not $SkipTests) { Invoke-Dotnet run --project tests/IdeaLite.Tests -c Release --no-build }
+    if (-not $SkipTests) {
+        Invoke-Dotnet run --project tests/IdeaLite.Tests -c Release --no-build
+        $previousConfigDirectory = $env:IDEALITE_CONFIG_DIR
+        try {
+            $env:IDEALITE_CONFIG_DIR = Join-Path $env:TEMP 'idea-lite-ui-checks'
+            Invoke-Dotnet run --project tests/IdeaLite.UiChecks -c Release --no-build
+        } finally { $env:IDEALITE_CONFIG_DIR = $previousConfigDirectory }
+    }
     $artifactsPath = Join-Path $repositoryPath 'artifacts'
     New-Item -ItemType Directory -Force $artifactsPath | Out-Null
     $modes = if ($Package -eq 'Both') { @('Framework','Portable') } else { @($Package) }

@@ -27,7 +27,7 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _workspaceLoad;
     private CancellationTokenSource? _diffLoad;
     private CancellationTokenSource? _command;
-    private bool _commandBusy, _loadingDocument, _refreshingGit, _switchingView;
+    private bool _commandBusy, _loadingDocument, _refreshingGit;
     private readonly List<DocumentState> _documents = [];
     private readonly Stack<(string Path, int Line)> _back = new();
     private DocumentState? _active;
@@ -36,10 +36,9 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _memoryTimer = new() { Interval = TimeSpan.FromSeconds(5) };
     private int[] _diffLines = [];
     private int _diffIndex = -1;
-    private bool _syncScrolling;
+    private DiffScrollSynchronizer _diffScroll = null!;
     private bool _focusMode;
     private int _openRequest;
-    private double _explorerWidth = 238, _changesWidth = 295;
     private readonly string? _initialRoot;
     private sealed record FileNode(string Path, bool IsFile);
     private sealed class DocumentState(OpenedFile file)
@@ -58,18 +57,22 @@ public partial class MainWindow : Window
         InitializeComponent();
         ActiveEditor = Editor;
         EditorSupport.Configure(Editor, false);
-        foreach (var editor in new[] { OldEditor, NewEditor, HistoryEditor, CommitEditor, OutputEditor }) EditorSupport.Configure(editor);
-        HistoryEditor.ShowLineNumbers = false; HistoryEditor.FontSize = 13; OutputEditor.FontSize = 12;
-        CommitEditor.TextArea.TextView.LineTransformers.Add(new PatchColorizer());
+        foreach (var editor in new[] { OldEditor, NewEditor, OutputEditor }) EditorSupport.Configure(editor);
+        OutputEditor.FontSize = 12;
+        OutputEditor.ShowLineNumbers = false;
         Editor.TextArea.Caret.PositionChanged += (_, _) => UpdateCaret();
         Editor.PreviewMouseWheel += (_, e) =>
         {
-            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) { Editor.FontSize = Math.Clamp(Editor.FontSize + (e.Delta > 0 ? 1 : -1), 10, 26); e.Handled = true; }
+            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+            {
+                Editor.FontSize = Math.Clamp(Editor.FontSize + (e.Delta > 0 ? 1 : -1), 10, 26);
+                e.Handled = true;
+            }
         };
-        OldEditor.TextArea.TextView.ScrollOffsetChanged += (_, _) => SyncScroll(OldEditor, NewEditor);
-        NewEditor.TextArea.TextView.ScrollOffsetChanged += (_, _) => SyncScroll(NewEditor, OldEditor);
-        Editor.Text = "\n\n    轻装看代码。\n\n    打开项目，直接进入工作。\n    审查 AI 改动，不必等整个 IDE 启动。\n\n    Ctrl + O           打开本地项目\n    Shift × 2          搜索文件、类型和方法\n    Ctrl + Shift + F   搜索项目内容\n    Ctrl + 鼠标左键    查找项目内定义\n    Ctrl + F           查找当前文件\n    Ctrl + K           编写提交说明\n\n    原生界面 · 无常驻 JVM · 本地 Git\n\n    Maven / Spring 识别不会运行项目脚本或下载依赖。";
+        _diffScroll = new DiffScrollSynchronizer(OldEditor, NewEditor);
         Editor.IsReadOnly = true;
+        InitializeWorkbench();
+
         _memoryTimer.Tick += (_, _) => UpdateMemory(); _memoryTimer.Start(); UpdateMemory();
         Loaded += async (_, _) => { if (_initialRoot != null) await Guard(() => OpenWorkspaceAsync(_initialRoot)); };
     }
@@ -84,7 +87,7 @@ public partial class MainWindow : Window
     private void UpdateMemory()
     {
         using var process = Process.GetCurrentProcess();
-        MemoryLabel.Text = $"RAM {process.WorkingSet64 / 1048576.0:F0} MB";
+        MemoryLabel.Text = $"{process.WorkingSet64 / 1048576.0:F0} MiB";
         MemoryLabel.ToolTip = $"当前进程工作集；专用内存 {process.PrivateMemorySize64 / 1048576.0:F0} MB。Git/Maven 子进程另计。";
     }
     private void UpdateCaret()
@@ -98,12 +101,14 @@ public partial class MainWindow : Window
         if (_commandBusy) { SetStatus("请等待正在运行的命令结束，或先停止命令。"); return; }
         if (!ConfirmCloseAll()) return;
         _workspaceLoad?.Cancel(); _workspaceLoad?.Dispose(); _workspaceLoad = new();
-        _diffLoad?.Cancel();
+        ++_openRequest;
+        ResetReviewState();
         var token = _workspaceLoad.Token;
         _documents.Clear(); _active = null; _back.Clear(); _workspace = null; _git = null; _gitStatus = null;
         _loadingDocument = true; Editor.Document = new TextDocument(); Editor.IsReadOnly = true; _loadingDocument = false;
         RebuildTabs(); FileTree.Items.Clear(); ChangesList.ItemsSource = null; MavenList.ItemsSource = null; SpringList.ItemsSource = null;
-        OldEditor.Clear(); NewEditor.Clear(); HistoryEditor.Clear(); CommitEditor.Clear(); CommitMessage.Clear(); Views.SelectedIndex = 0;
+        OldEditor.Clear(); NewEditor.Clear(); CommitMessage.Clear(); AmendCheck.IsChecked = false;
+        SetSurface(false);
         root = Path.GetFullPath(root);
         SetStatus("正在打开项目与建立有上限的源码索引…");
         string? gitRoot;
@@ -116,12 +121,15 @@ public partial class MainWindow : Window
         _workspace = snapshot; _git = git;
         ProjectTitle.Text = Path.GetFileName(root); ProjectTitle.ToolTip = root;
         Title = $"{Path.GetFileName(root)} — Idea Lite";
-        FileCount.Text = snapshot.Files.Length.ToString("N0");
-        IndexLabel.Text = $"{snapshot.Symbols.Count:N0} 个代码符号 · {snapshot.Maven.Count} 个 Maven 模块" + (snapshot.Limited ? "\n索引已达到限制，可缩小项目范围" : "\n按需索引 · 无常驻 JVM");
-        PopulateTree(FileTree, "");
+        ProjectMark.Text = ProjectTitle.Text.Length > 0 ? ProjectTitle.Text[..1].ToUpperInvariant() : "IL";
+        RenderProjectTree();
         MavenList.ItemsSource = snapshot.Maven; SpringList.ItemsSource = snapshot.Spring;
-        BranchButton.Content = git == null ? "⑂  非 Git 项目" : "⑂  加载分支…";
+        RunConfigButton.IsEnabled = RunButton.IsEnabled = snapshot.Maven.Count > 0;
+        BranchLabel.Text = git == null ? "Git" : "…";
+        GitSummary.Text = git == null ? "当前目录没有 Git 仓库" : "";
         if (git != null) await RefreshGitAsync();
+        if (_bottom == BottomTool.Log) await LoadHistoryAsync();
+
         var first = snapshot.Files.FirstOrDefault(p => Path.GetFileName(p).Equals("README.md", StringComparison.OrdinalIgnoreCase)) ?? snapshot.Files.FirstOrDefault(p => p.EndsWith("pom.xml"));
         if (first != null) await OpenFileAsync(first);
         SetStatus($"已打开 {root} · {snapshot.Files.Length:N0} 个文件 · {snapshot.Symbols.Count:N0} 个符号" + (snapshot.Limited ? " · 索引达到上限" : ""));
@@ -140,18 +148,18 @@ public partial class MainWindow : Window
             var name = group.Key;
             if (!isFile)
             {
-                while (true)
+                while (IsPackageDirectory(path))
                 {
                     var tails = group.Select(p => p[(path.Length + 1)..]).ToArray();
                     if (tails.Any(t => !t.Contains('/'))) break;
                     var heads = tails.Select(t => t.Split('/')[0]).Distinct().ToArray();
                     if (heads.Length != 1) break;
-                    path += "/" + heads[0]; name += "/" + heads[0];
+                    path += "/" + heads[0]; name += "." + heads[0];
                 }
             }
-            var header = new TextBlock { Text = (isFile ? FileIcon(path) : "▸ ") + name, FontSize = 12, ToolTip = path };
-            if (path.EndsWith(".java") || path.EndsWith("pom.xml")) header.Foreground = new SolidColorBrush(Color.FromRgb(181, 207, 168));
-            var item = new TreeViewItem { Header = header, Tag = new FileNode(path, isFile) };
+            var icon = isFile ? FileIcon(path) : IsPackageDirectory(path) ? "Package" : "Folder";
+            var item = new TreeViewItem { Header = FileHeader(name, icon, path), Tag = new FileNode(path, isFile) };
+
             if (!isFile)
             {
                 item.Items.Add(new TreeViewItem { Header = "…" });
@@ -160,12 +168,20 @@ public partial class MainWindow : Window
             parent.Items.Add(item);
         }
     }
-    private static string FileIcon(string path) => Path.GetExtension(path) switch { ".java" => "J  ", ".kt" => "K  ", ".xml" => "◇  ", ".md" => "≡  ", ".yml" or ".yaml" or ".properties" => "⚙  ", _ => "·  " };
+    internal static string FileIcon(string path) => Path.GetExtension(path).ToLowerInvariant() switch
+    {
+        ".java" or ".kt" or ".cs" => "Class",
+        ".xml" or ".xaml" or ".html" => "Xml",
+        _ => "File"
+    };
 
-    private async Task OpenFileAsync(string relative, int line = 1, bool remember = true)
+    private static bool IsPackageDirectory(string path) => path.Contains("/java/", StringComparison.Ordinal) || path.Contains("/kotlin/", StringComparison.Ordinal);
+
+    private async Task OpenFileAsync(string relative, int? line = null, bool remember = true)
     {
         if (_workspace == null) return;
         var request = ++_openRequest;
+        _diffLoad?.Cancel();
         var path = FileService.SafePath(_workspace.Root, relative);
         var document = _documents.FirstOrDefault(d => d.File.Path.Equals(path, StringComparison.OrdinalIgnoreCase));
         if (document == null)
@@ -181,12 +197,12 @@ public partial class MainWindow : Window
             document = new(file);
             _documents.Add(document);
             var captured = document;
-            captured.Document.Changed += (_, _) => { if (!_loadingDocument) { captured.Dirty = true; RebuildTabs(); } };
+            captured.Document.Changed += (_, _) => { if (!_loadingDocument) { if (!captured.Dirty) { captured.Dirty = true; RebuildTabs(); } } };
         }
         if (_active != null)
         {
             _active.Caret = Editor.CaretOffset; _active.Scroll = Editor.VerticalOffset;
-            if (remember && (_active != document || Editor.TextArea.Caret.Line != line)) _back.Push((Relative(_active.File.Path), Editor.TextArea.Caret.Line));
+            if (remember && (_active != document || (line.HasValue && Editor.TextArea.Caret.Line != line.Value))) _back.Push((Relative(_active.File.Path), Editor.TextArea.Caret.Line));
         }
         _loadingDocument = true; _active = document;
         Editor.Document = document.Document; Editor.IsReadOnly = false;
@@ -196,11 +212,17 @@ public partial class MainWindow : Window
         Editor.CaretOffset = Math.Min(document.Caret, document.Document.TextLength);
         Editor.ScrollToVerticalOffset(document.Scroll);
         _loadingDocument = false;
-        Views.SelectedIndex = 0; Breadcrumb.Text = relative.Replace('/', '›');
-        EditorConflictBar.Visibility = _gitStatus?.Changes.Any(c => c.Path == relative && c.IsConflict) == true ? Visibility.Visible : Visibility.Collapsed;
-        if (line > 1) { line = Math.Clamp(line, 1, document.Document.LineCount); Editor.TextArea.Caret.Line = line; Editor.ScrollToLine(line); }
+        SetSurface(false);
+        UpdateStructure();
+
+        if (line is int targetLine)
+        {
+            targetLine = Math.Clamp(targetLine, 1, document.Document.LineCount);
+            Editor.CaretOffset = document.Document.GetLineByNumber(targetLine).Offset;
+            Editor.ScrollToLine(targetLine);
+        }
         RebuildTabs(); UpdateCaret(); Editor.TextArea.Focus();
-        SetStatus(document.File.Style.Source + " · 保存时保留/匹配文件风格 · Ctrl+Alt+L 统一缩进空白");
+        SetStatus(document.File.Style.Source + "");
     }
     private string Relative(string path) => _workspace == null ? path : Path.GetRelativePath(_workspace.Root, path).Replace('\\', '/');
     private void RebuildTabs()
@@ -209,18 +231,15 @@ public partial class MainWindow : Window
         DocumentTabs.Children.Clear();
         foreach (var doc in _documents)
         {
-            var row = new StackPanel { Orientation = Orientation.Horizontal };
-            var button = new Button
-            {
-                Content = (doc.Dirty ? "● " : "") + Path.GetFileName(doc.File.Path),
-                Padding = new Thickness(9, 3, 9, 3),
-                ToolTip = doc.File.Path,
-                Foreground = new SolidColorBrush(doc == _active ? Color.FromRgb(125, 226, 178) : Color.FromRgb(160, 172, 190))
-            };
-            button.Click += async (_, _) => await Guard(() => OpenFileAsync(Relative(doc.File.Path)));
-            var close = new Button { Content = "×", Padding = new Thickness(5, 2, 5, 2), Margin = new Thickness(0, 3, 4, 3), ToolTip = "关闭 · Ctrl+W" };
-            close.Click += async (_, _) => await Guard(() => CloseDocumentAsync(doc));
-            row.Children.Add(button); row.Children.Add(close); DocumentTabs.Children.Add(row);
+            AddEditorTab(Path.GetFileName(doc.File.Path), FileIcon(doc.File.Path), doc.File.Path,
+                !_showDiff && doc == _active, doc.Dirty, () => OpenFileAsync(Relative(doc.File.Path)),
+                () => CloseDocumentAsync(doc));
+        }
+        if (_preview != null)
+        {
+            var preview = _preview;
+            AddEditorTab(Path.GetFileName(preview.Path), "Diff", preview.Description, _showDiff, false,
+                () => ShowPreviewAsync(preview), () => { ClosePreview(); return Task.CompletedTask; });
         }
     }
 
@@ -262,12 +281,10 @@ public partial class MainWindow : Window
         {
             _active = null;
             if (_documents.Count > 0) await OpenFileAsync(Relative(_documents[^1].File.Path), remember: false);
-            else { _loadingDocument = true; Editor.Document = new TextDocument(); Editor.IsReadOnly = true; _loadingDocument = false; Breadcrumb.Text = "WORKSPACE"; }
+            else { _loadingDocument = true; Editor.Document = new TextDocument(); Editor.IsReadOnly = true; _loadingDocument = false; SetSurface(_showDiff && _preview != null); UpdateStructure(); }
         }
         RebuildTabs();
     }
-    private void EditorChanged(object? sender, EventArgs e) { }
-
     private async Task RefreshGitAsync()
     {
         var git = _git;
@@ -277,60 +294,30 @@ public partial class MainWindow : Window
         {
             var status = await git.StatusAsync();
             if (_git != git) return;
-            _gitStatus = status; _lastRefresh = DateTime.UtcNow;
-            var selected = (ChangesList.SelectedItem as GitChange)?.Path;
-            ChangesList.ItemsSource = status.Changes; ChangeCount.Text = status.Changes.Count.ToString();
-            BranchButton.Content = "⑂  " + status.Branch; BranchButton.ToolTip = status.Branch;
-            GitSummary.Text = status.Changes.Count == 0 ? "✓ 工作区干净。继续专注写代码。" : $"{status.Changes.Count(c => c.IsStaged)} 个文件已暂存 · {status.Changes.Count(c => c.IsConflict)} 个冲突 · 点击查看对比";
-            if (selected != null) ChangesList.SelectedItem = status.Changes.FirstOrDefault(c => c.Path == selected);
+            _gitStatus = status;
+            _lastRefresh = DateTime.UtcNow;
+            BranchLabel.Text = status.Branch.Split("...")[0];
+            BranchButton.ToolTip = status.Branch;
+            BindChanges(status);
         }
         finally { _refreshingGit = false; }
-        if (_git == git && Views.SelectedIndex == 1)
+        if (_git != git) return;
+        if (_showDiff && _preview?.Change != null)
         {
-            if (ChangesList.SelectedItem is GitChange current) await ShowDiffAsync(current);
-            else { OldEditor.Clear(); NewEditor.Clear(); DiffTitle.Text = "选择一个改动查看对比"; ConflictBar.Visibility = Visibility.Collapsed; }
+            var current = _gitStatus!.Changes.FirstOrDefault(c => c.Path == _preview.Path && !c.IsConflict);
+            if (current == null) ClosePreview();
+            else await ShowPreviewAsync(DiffPreview.Local(current, current.IsStaged && (!current.HasWorkingChanges || _preview.Staged)));
         }
     }
 
-    private async Task ShowDiffAsync(GitChange change)
-    {
-        var git = _git; if (git == null) return;
-        _diffLoad?.Cancel(); _diffLoad?.Dispose(); _diffLoad = new();
-        var token = _diffLoad.Token;
-        var staged = StagedToggle.IsChecked == true;
-        if (!change.HasWorkingChanges && change.IsStaged && !staged) { StagedToggle.IsChecked = true; staged = true; }
-        if (!change.IsStaged || change.IsConflict) { StagedToggle.IsChecked = false; staged = false; }
-        SetStatus("正在读取差异…");
-        var diff = change.IsConflict ? await git.ConflictSidesAsync(change.Path, token) : await git.DiffAsync(change, staged, token);
-        token.ThrowIfCancellationRequested();
-        if (diff.OldText.Contains('\0') || diff.NewText.Contains('\0')) throw new IOException("二进制文件无法进行文本对比，请使用外部工具。");
-        if (diff.OldText.Length + diff.NewText.Length > 1_000_000 || diff.OldText.Count(c => c == '\n') + diff.NewText.Count(c => c == '\n') > 40_000)
-            throw new IOException("差异超过轻量视图限制（总计 100 万字符 / 4 万行）。请使用终端 git diff 或缩小文件。");
-        var ignore = IgnoreWhitespace.IsChecked == true;
-        var model = await Task.Run(() => new SideBySideDiffBuilder(new Differ()).BuildDiffModel(diff.OldText, diff.NewText, ignore), token);
-        token.ThrowIfCancellationRequested();
-        OldEditor.Text = string.Join('\n', model.OldText.Lines.Select(l => l.Text ?? ""));
-        NewEditor.Text = string.Join('\n', model.NewText.Lines.Select(l => l.Text ?? ""));
-        EditorSupport.Highlight(OldEditor, change.Path); EditorSupport.Highlight(NewEditor, change.Path);
-        EditorSupport.SetLineColors(OldEditor, model.OldText.Lines, true); EditorSupport.SetLineColors(NewEditor, model.NewText.Lines, false);
-        OldLabel.Text = diff.OldLabel; NewLabel.Text = diff.NewLabel; DiffTitle.Text = change.Path;
-        var added = model.NewText.Lines.Count(l => l.Type is ChangeType.Inserted or ChangeType.Modified);
-        var removed = model.OldText.Lines.Count(l => l.Type is ChangeType.Deleted or ChangeType.Modified);
-        _diffLines = model.NewText.Lines.Select((l, i) => (l, i)).Where(x => x.l.Type != ChangeType.Unchanged && (x.i == 0 || model.NewText.Lines[x.i - 1].Type == ChangeType.Unchanged)).Select(x => x.i + 1).ToArray();
-        _diffIndex = -1; ConflictBar.Visibility = change.IsConflict ? Visibility.Visible : Visibility.Collapsed;
-        Views.SelectedIndex = 1; SetStatus($"{change.Path} · +{added} / −{removed}" + (change.IsConflict ? " · 上方显示两侧版本；在代码页编辑合并结果" : " · 空白行用于对齐，行号为对比视图行号"));
-        MoveDiff(1);
-    }
-    private void SyncScroll(TextEditor source, TextEditor target)
-    {
-        if (_syncScrolling) return;
-        _syncScrolling = true; target.ScrollToVerticalOffset(source.VerticalOffset); _syncScrolling = false;
-    }
+
+
     private void MoveDiff(int direction)
     {
         if (_diffLines.Length == 0) return;
         _diffIndex = (_diffIndex + direction + _diffLines.Length) % _diffLines.Length;
-        OldEditor.ScrollToLine(_diffLines[_diffIndex]); NewEditor.ScrollToLine(_diffLines[_diffIndex]);
+        _diffScroll.RevealLine(_diffLines[_diffIndex]);
+        DiffSummary.Text = $"第 {_diffIndex + 1} / {_diffLines.Length} 处差异";
     }
 
     private async Task GitOperationAsync(string title, Func<GitService, Task> action)
@@ -341,14 +328,28 @@ public partial class MainWindow : Window
         try { SetStatus(title + "…"); await action(_git); await RefreshGitAsync(); SetStatus(title + "完成"); }
         finally { _commandBusy = false; }
     }
-    private string[] SelectedPaths() => ChangesList.SelectedItems.Cast<GitChange>().SelectMany(c => c.OriginalPath == null ? new[] { c.Path } : new[] { c.Path, c.OriginalPath }).Distinct().ToArray();
+    private string[] SelectedPaths() => ChangesList.SelectedItems.Cast<ChangeItem>().Select(item => item.Change).Distinct().SelectMany(c => c.OriginalPath == null ? new[] { c.Path } : new[] { c.Path, c.OriginalPath }).Distinct().ToArray();
 
     private async Task SearchAsync(string mode = "all", string initial = "")
     {
-        if (_workspace == null) { SetStatus("请先打开项目。"); return; }
-        var dialog = new SearchWindow(this, _workspace, mode, initial);
-        if (dialog.ShowDialog() == true && dialog.Result is { } result) await OpenFileAsync(result.Path, result.Line);
+        var commands = new Dictionary<string, (string Key, Func<Task> Action)>
+        {
+            ["打开项目"] = ("Ctrl+O", ChooseProjectAsync),
+            ["提交"] = ("Ctrl+K", () => ActivateCommitAsync(false)),
+            ["Git 日志"] = ("Alt+9", () => SelectBottomAsync(BottomTool.Log, false)),
+            ["分支"] = ("Git", ShowBranchesAsync),
+            ["推送"] = ("Ctrl+Shift+K", PushWithPreviewAsync),
+            ["服务"] = ("Alt+8", () => SelectBottomAsync(BottomTool.Services, false)),
+            ["刷新项目"] = ("F5", RefreshWorkspaceAsync),
+            ["隐藏或恢复工具窗口"] = ("Ctrl+Shift+F12", () => { ToggleFocusMode(); return Task.CompletedTask; })
+        };
+        var actions = commands.Select(c => new SearchHit(c.Key, "", 0, "操作", c.Value.Key)).ToArray();
+        var dialog = new SearchWindow(this, _workspace ?? new WorkspaceSnapshot("", [], [], [], [], false), mode, initial, actions: actions);
+        if (dialog.ShowDialog() != true || dialog.Result is not { } result) return;
+        if (result.Kind == "操作" && commands.TryGetValue(result.Name, out var command)) await command.Action();
+        else await OpenFileAsync(result.Path, result.Line);
     }
+
     private async Task NavigateDefinitionAsync(int? offset = null)
     {
         if (_workspace == null || _active == null) return;
@@ -371,36 +372,71 @@ public partial class MainWindow : Window
 
     private async void OnKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key is Key.LeftShift or Key.RightShift) { if (!e.IsRepeat) _shiftOnly = true; return; }
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (key is Key.LeftShift or Key.RightShift) { if (!e.IsRepeat) _shiftOnly = true; return; }
         _shiftOnly = false; _lastShift = default;
         var modifiers = Keyboard.Modifiers;
-        bool ctrl = modifiers.HasFlag(ModifierKeys.Control), shift = modifiers.HasFlag(ModifierKeys.Shift), alt = modifiers.HasFlag(ModifierKeys.Alt);
-        Func<Task>? action = e.Key switch
+        var ctrl = ModifierKeys.Control;
+        var alt = ModifierKeys.Alt;
+        var shift = ModifierKeys.Shift;
+        Func<Task>? action = (modifiers, key) switch
         {
-            Key.O when ctrl => ChooseProjectAsync,
-            Key.S when ctrl => () => SaveAsync(),
-            Key.P when ctrl => () => SearchAsync(),
-            Key.N when ctrl && shift && !alt => () => SearchAsync(),
-            Key.N when ctrl => () => SearchAsync("symbols"),
-            Key.F when ctrl && shift => () => SearchAsync("text", Editor.SelectedText.Length < 100 ? Editor.SelectedText : ""),
-            Key.B when ctrl => () => NavigateDefinitionAsync(),
-            Key.F12 when !ctrl => () => NavigateDefinitionAsync(),
-            Key.F5 => RefreshWorkspaceAsync,
-            Key.Enter when ctrl => CommitAsync,
-            Key.W when ctrl && _active != null => () => CloseDocumentAsync(_active),
-            Key.Left when alt => GoBackAsync,
+            (ModifierKeys.Alt, Key.D1) => () => { SelectLeft(LeftTool.Project); return Task.CompletedTask; }
+            ,
+            (ModifierKeys.Alt, Key.D0) => () => ActivateCommitAsync(true),
+            (ModifierKeys.Alt, Key.D9) => () => SelectBottomAsync(BottomTool.Log),
+            (ModifierKeys.Alt, Key.D8) => () => SelectBottomAsync(BottomTool.Services),
+            (ModifierKeys.Alt, Key.D7) => () => { SelectLeft(LeftTool.Structure); return Task.CompletedTask; }
+            ,
+            (ModifierKeys.Alt, Key.D4) => () => SelectBottomAsync(BottomTool.Run),
+            (ModifierKeys.Alt, Key.F12) => () => { OpenTerminal(); return Task.CompletedTask; }
+            ,
+            (ModifierKeys.Alt, Key.Home) => () => { SelectCurrentFile(); return Task.CompletedTask; }
+            ,
+            (ModifierKeys.Control, Key.K) => () => ActivateCommitAsync(false),
+            (ModifierKeys.Control | ModifierKeys.Shift, Key.K) => PushWithPreviewAsync,
+            (ModifierKeys.Control | ModifierKeys.Shift, Key.Oem3) => ShowBranchesAsync,
+            (ModifierKeys.Control, Key.D) when ChangesList.IsKeyboardFocusWithin => OpenSelectedChangeAsync,
+            (ModifierKeys.Control, Key.D) when HistoryFiles.IsKeyboardFocusWithin => OpenHistoryFileAsync,
+            (ModifierKeys.None, Key.F4) when ChangesList.IsKeyboardFocusWithin => OpenSelectedSourceAsync,
+            (ModifierKeys.None, Key.Enter) when ChangesList.IsKeyboardFocusWithin => OpenSelectedChangeAsync,
+            (ModifierKeys.None, Key.Enter) when HistoryFiles.IsKeyboardFocusWithin => OpenHistoryFileAsync,
+            (ModifierKeys.None, Key.F4) when _showDiff && _preview != null => () => OpenFileAsync(_preview.Path),
+            (ModifierKeys.Control | ModifierKeys.Alt, Key.A) when ChangesList.IsKeyboardFocusWithin => StageSelectionAsync,
+            (ModifierKeys.Control | ModifierKeys.Alt, Key.Z) when ChangesList.IsKeyboardFocusWithin => DiscardSelectionAsync,
+            (ModifierKeys.Control, Key.Enter) when CommitPane.IsKeyboardFocusWithin => CommitAsync,
+            (ModifierKeys.Control, Key.O) => ChooseProjectAsync,
+            (ModifierKeys.Control, Key.S) => () => SaveAsync(),
+            (ModifierKeys.Control, Key.P) => () => SearchAsync(),
+            (ModifierKeys.Control | ModifierKeys.Shift, Key.N) => () => SearchAsync("files"),
+            (ModifierKeys.Control, Key.N) => () => SearchAsync("classes"),
+            (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt, Key.N) => () => SearchAsync("symbols"),
+            (ModifierKeys.Control | ModifierKeys.Shift, Key.F) => () => SearchAsync("text", Editor.SelectedText.Length < 100 ? Editor.SelectedText : ""),
+            (ModifierKeys.Control, Key.B) or (ModifierKeys.None, Key.F12) when !_showDiff => () => NavigateDefinitionAsync(),
+            (ModifierKeys.None, Key.F5) => RefreshWorkspaceAsync,
+            (ModifierKeys.Control, Key.W) when _showDiff => () => { ClosePreview(); return Task.CompletedTask; }
+            ,
+            (ModifierKeys.Control, Key.W) when _active != null => () => CloseDocumentAsync(_active),
+            (ModifierKeys.Alt, Key.Left) or (ModifierKeys.Control | ModifierKeys.Alt, Key.Left) => GoBackAsync,
             _ => null
         };
         if (action != null) { e.Handled = true; await Guard(action); return; }
-        if (ctrl && e.Key == Key.K) { CommitMessage.Focus(); e.Handled = true; }
-        else if (ctrl && shift && e.Key == Key.F12) { ToggleFocusMode(); e.Handled = true; }
-        else if (ctrl && e.Key == Key.H && _active != null) { ReplaceText(); e.Handled = true; }
-        else if (ctrl && e.Key == Key.G) { GoToLine(); e.Handled = true; }
-        else if (ctrl && alt && e.Key == Key.L && _active != null) { NormalizeIndentation(); e.Handled = true; }
-        else if (ctrl && e.Key == Key.D && _active != null && Editor.IsKeyboardFocusWithin) { DuplicateLine(); e.Handled = true; }
-        else if (ctrl && e.Key == Key.OemQuestion && _active != null && Editor.IsKeyboardFocusWithin) { ToggleComment(); e.Handled = true; }
-        else if (ctrl && e.Key == Key.Tab && _documents.Count > 1) { e.Handled = true; var index = (_documents.IndexOf(_active!) + (shift ? _documents.Count - 1 : 1)) % _documents.Count; await Guard(() => OpenFileAsync(Relative(_documents[index].File.Path))); }
+        if (modifiers == (ctrl | shift) && key == Key.F12) ToggleFocusMode();
+        else if (modifiers == (shift | ctrl) && key == Key.A) { await Guard(() => SearchAsync("actions")); }
+        else if (modifiers == (ctrl | alt) && key == Key.S) ShowSettingsMenu();
+        else if (modifiers == shift && key == Key.Escape) HideFocusedTool();
+        else if (_showDiff && key == Key.F7 && (modifiers == shift || modifiers == ModifierKeys.None)) MoveDiff(modifiers == shift ? -1 : 1);
+        else if (!_showDiff && Editor.IsKeyboardFocusWithin && _active != null && modifiers == ctrl && key == Key.H) ReplaceText();
+        else if (!_showDiff && _active != null && modifiers == ctrl && key == Key.G) GoToLine();
+        else if (!_showDiff && _active != null && modifiers == (ctrl | alt) && key == Key.L) NormalizeIndentation();
+        else if (modifiers == ctrl && key == Key.D && Editor.IsKeyboardFocusWithin && _active != null) DuplicateLine();
+        else if (modifiers == ctrl && key == Key.OemQuestion && Editor.IsKeyboardFocusWithin && _active != null) ToggleComment();
+        else if (key == Key.Tab && (modifiers == ctrl || modifiers == (ctrl | shift))) await Guard(() => CycleTabAsync(modifiers.HasFlag(shift)));
+        else if (key == Key.Escape && modifiers == ModifierKeys.None && !Editor.IsKeyboardFocusWithin && !CommitMessage.IsKeyboardFocusWithin) FocusEditor();
+        else return;
+        e.Handled = true;
     }
+
     private async void OnKeyUp(object sender, KeyEventArgs e)
     {
         if (e.Key is not (Key.LeftShift or Key.RightShift) || !_shiftOnly || Keyboard.Modifiers != ModifierKeys.None) return;
@@ -420,20 +456,12 @@ public partial class MainWindow : Window
     }
     private void ToggleFocusMode()
     {
+        RememberSizes();
         _focusMode = !_focusMode;
-        if (_focusMode)
-        {
-            _explorerWidth = ExplorerColumn.ActualWidth; _changesWidth = ChangesColumn.ActualWidth;
-            ExplorerColumn.MinWidth = ChangesColumn.MinWidth = 0;
-            ExplorerColumn.Width = ChangesColumn.Width = new GridLength(0);
-        }
-        else
-        {
-            ExplorerColumn.MinWidth = 160; ChangesColumn.MinWidth = 245;
-            ExplorerColumn.Width = new GridLength(_explorerWidth); ChangesColumn.Width = new GridLength(_changesWidth);
-        }
-        SetStatus("Ctrl+Shift+F12 切换侧边栏 · 当前为" + (_focusMode ? "专注模式" : "完整工作台"));
+        ApplyLayout();
+        if (_focusMode) FocusEditor();
     }
+
     private void NormalizeIndentation()
     {
         if (_active == null) return;
@@ -492,9 +520,12 @@ public partial class MainWindow : Window
         SetStatus("刷新文件与源码索引…");
         var snapshot = await WorkspaceService.LoadAsync(root, _git, token);
         token.ThrowIfCancellationRequested();
-        _workspace = snapshot; FileCount.Text = snapshot.Files.Length.ToString("N0"); PopulateTree(FileTree, "");
-        SpringList.ItemsSource = snapshot.Spring; MavenList.ItemsSource = snapshot.Maven;
-        IndexLabel.Text = $"{snapshot.Symbols.Count:N0} 个代码符号 · {snapshot.Maven.Count} 个 Maven 模块" + (snapshot.Limited ? "\n索引达到上限" : "\n按需索引 · 无常驻 JVM");
+        _workspace = snapshot;
+        RenderProjectTree();
+        SpringList.ItemsSource = snapshot.Spring;
+        MavenList.ItemsSource = snapshot.Maven;
+        UpdateStructure();
+
         // Reload clean buffers changed by Git/AI tools, keeping dirty buffers intact.
         foreach (var doc in _documents.Where(d => !d.Dirty).ToArray())
         {
@@ -503,7 +534,9 @@ public partial class MainWindow : Window
             if (fresh.Hash == doc.File.Hash || doc.Dirty) continue;
             _loadingDocument = true; doc.File = fresh; doc.Document.Text = fresh.Text; _loadingDocument = false;
         }
-        await RefreshGitAsync(); SetStatus("索引与 Git 状态已刷新");
+        await RefreshGitAsync();
+        if (_bottom == BottomTool.Log) await LoadHistoryAsync();
+        SetStatus("索引与 Git 状态已刷新");
     }
     private async Task GoBackAsync()
     {
@@ -531,7 +564,8 @@ public partial class MainWindow : Window
     {
         if (!ConfirmCloseAll()) { e.Cancel = true; return; }
         if (_commandBusy && !Dialogs.Confirm(this, "仍有 Git / Maven 命令运行中，关闭会停止该命令。是否继续？")) { e.Cancel = true; return; }
-        _command?.Cancel(); _workspaceLoad?.Cancel(); _diffLoad?.Cancel(); _memoryTimer.Stop();
+        RememberSizes(); _layout.Save();
+        _command?.Cancel(); _workspaceLoad?.Cancel(); _diffLoad?.Cancel(); _historyLoad?.Cancel(); _detailLoad?.Cancel(); _memoryTimer.Stop();
     }
 
     private async void OpenProjectClick(object sender, RoutedEventArgs e) => await Guard(ChooseProjectAsync);
@@ -566,80 +600,88 @@ public partial class MainWindow : Window
         var position = Editor.GetPositionFromPoint(e.GetPosition(Editor));
         if (position != null) { e.Handled = true; await Guard(() => NavigateDefinitionAsync(Editor.Document.GetOffset(position.Value.Location))); }
     }
-    private async void ChangeSelected(object sender, SelectionChangedEventArgs e) { if (!_refreshingGit && ChangesList.SelectedItem is GitChange change) await Guard(() => ShowDiffAsync(change)); }
-    private async void ChangeDoubleClick(object sender, MouseButtonEventArgs e) { if (ChangesList.SelectedItem is GitChange change) await Guard(() => OpenFileAsync(change.Path)); }
-    private async void DiffModeClick(object sender, RoutedEventArgs e) { if (ChangesList.SelectedItem is GitChange change) await Guard(() => ShowDiffAsync(change)); }
-    private async void EditChangeClick(object sender, RoutedEventArgs e) { if (ChangesList.SelectedItem is GitChange change) await Guard(() => OpenFileAsync(change.Path)); }
+    private async void ChangeDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (ItemAt<ListBoxItem>(ChangesList, e.OriginalSource) != null) await Guard(OpenSelectedChangeAsync);
+    }
+    private async void PreviewChangeClick(object sender, RoutedEventArgs e) => await Guard(OpenSelectedChangeAsync);
+    private async void EditChangeClick(object sender, RoutedEventArgs e) => await Guard(OpenSelectedSourceAsync);
+    private async void EditDiffSourceClick(object sender, RoutedEventArgs e) { if (_preview != null) await Guard(() => OpenFileAsync(_preview.Path)); }
+    private async void DiffModeClick(object sender, RoutedEventArgs e) { if (_preview != null) await Guard(() => ShowPreviewAsync(_preview)); }
     private void PreviousDiffClick(object sender, RoutedEventArgs e) => MoveDiff(-1);
     private void NextDiffClick(object sender, RoutedEventArgs e) => MoveDiff(1);
-    private async void StageClick(object sender, RoutedEventArgs e) => await Guard(() => GitOperationAsync("暂存", async git => { var paths = SelectedPaths(); if (paths.Length > 0) await git.StageAsync(paths); }));
-    private async void UnstageClick(object sender, RoutedEventArgs e) => await Guard(() => GitOperationAsync("取消暂存", async git => { var paths = SelectedPaths(); if (paths.Length > 0) await git.UnstageAsync(paths); }));
-    private async void StageAllClick(object sender, RoutedEventArgs e) => await Guard(() => GitOperationAsync("全部暂存", async git => { if (_gitStatus?.Changes.Count > 0) await git.StageAsync(["."]); }));
-    private async Task CommitAsync() => await GitOperationAsync("提交", async git => { await git.CommitAsync(CommitMessage.Text); CommitMessage.Clear(); });
-    private async void CommitClick(object sender, RoutedEventArgs e) => await Guard(CommitAsync);
-    private async void PullClick(object sender, RoutedEventArgs e) => await Guard(() => RunGitCommandAsync(["pull", "--ff-only"]));
-    private async void PushClick(object sender, RoutedEventArgs e) => await Guard(() => RunGitCommandAsync(["push"]));
-    private async void DiscardClick(object sender, RoutedEventArgs e) => await Guard(() => GitOperationAsync("丢弃改动", async git =>
+    private async Task StageSelectionAsync()
     {
-        var changes = ChangesList.SelectedItems.Cast<GitChange>().ToArray();
-        if (changes.Length == 0 || !Dialogs.Confirm(this, "永久丢弃以下文件的工作区修改？未跟踪文件将被删除，暂存区内容会保留。\n\n" + string.Join('\n', changes.Select(c => c.Path)))) return;
+        if (ChangesList.SelectedItems.Cast<ChangeItem>().Any(item => item.Change.IsConflict))
+            throw new InvalidOperationException("请先双击冲突文件，在合并窗口中应用结果。");
+        await GitOperationAsync("暂存", async git => { var paths = SelectedPaths(); if (paths.Length > 0) await git.StageAsync(paths); });
+    }
+    private async void StageClick(object sender, RoutedEventArgs e) => await Guard(StageSelectionAsync);
+    private async void UnstageClick(object sender, RoutedEventArgs e) => await Guard(() => GitOperationAsync("取消暂存", async git => { var paths = SelectedPaths(); if (paths.Length > 0) await git.UnstageAsync(paths); }));
+    private async void StageAllClick(object sender, RoutedEventArgs e) => await Guard(() => GitOperationAsync("全部暂存", async git =>
+    {
+        if (_gitStatus?.Changes.Any(c => c.IsConflict) == true) throw new InvalidOperationException("存在冲突，请先解决冲突。");
+        if (_gitStatus?.Changes.Count > 0) await git.StageAsync(["."]);
+    }));
+    private async Task<bool> CommitStagedAsync()
+    {
+        if (_git == null || _commandBusy) return false;
+        bool amend = AmendCheck.IsChecked == true;
+        if (amend && !Dialogs.Confirm(this, "用勾选文件的内容修改上一次提交？这会改写该提交的 ID。")) return false;
+        await GitOperationAsync("提交", async git =>
+        {
+            var paths = _commitChoices.Where(pair => pair.Value.Included).Select(pair => pair.Key).ToArray();
+            foreach (var doc in _documents.Where(d => d.Dirty && paths.Contains(Relative(d.File.Path))).ToArray())
+            {
+                await OpenFileAsync(Relative(doc.File.Path));
+                await SaveAsync();
+                if (doc.Dirty) throw new InvalidOperationException("勾选文件仍有未保存的编辑，请保存后重试。");
+            }
+            await git.CommitSelectedAsync(paths, CommitMessage.Text, amend);
+            CommitMessage.Clear(); AmendCheck.IsChecked = false;
+        });
+        if (_bottom == BottomTool.Log) await LoadHistoryAsync();
+        return true;
+    }
+    private async Task CommitAsync() => await CommitStagedAsync();
+    private async void CommitClick(object sender, RoutedEventArgs e) => await Guard(CommitAsync);
+    private async void CommitPushClick(object sender, RoutedEventArgs e) => await Guard(async () =>
+    {
+        if (await CommitStagedAsync()) await PushWithPreviewAsync();
+    });
+    private async Task DiscardSelectionAsync() => await GitOperationAsync("回滚改动", async git =>
+    {
+        var changes = ChangesList.SelectedItems.Cast<ChangeItem>().Select(c => c.Change).Distinct().ToArray();
+        if (changes.Length == 0 || !Dialogs.Confirm(this, "丢弃以下工作区修改？未跟踪文件将被删除。\n\n" + string.Join('\n', changes.Select(c => c.Path)))) return;
         foreach (var change in changes)
         {
             if (change.IsUntracked) File.Delete(FileService.SafePath(git.Root, change.Path));
             else (await git.RunAsync(["restore", "--worktree", "--", change.Path])).EnsureSuccess();
         }
         await RefreshWorkspaceAsync();
-    }));
-    private async void UseOursClick(object sender, RoutedEventArgs e) => await Guard(() => ResolveNextAsync("ours"));
-    private async void UseTheirsClick(object sender, RoutedEventArgs e) => await Guard(() => ResolveNextAsync("theirs"));
-    private async void UseBothClick(object sender, RoutedEventArgs e) => await Guard(() => ResolveNextAsync("both"));
-    private async Task ResolveNextAsync(string choice)
-    {
-        if (ChangesList.SelectedItem is not GitChange { IsConflict: true } change) return;
-        await OpenFileAsync(change.Path);
-        var blocks = ConflictParser.Parse(Editor.Text);
-        if (blocks.Count == 0) { SetStatus("没有文本冲突标记；请检查结果，完成后保存并暂存。二进制/删除冲突请使用 Git 命令。 "); return; }
-        var block = blocks[0];
-        Editor.Document.Replace(block.Start, block.Length, choice == "ours" ? block.Ours : choice == "theirs" ? block.Theirs : block.Ours + block.Theirs);
-        Editor.CaretOffset = Math.Min(block.Start, Editor.Document.TextLength); Editor.ScrollToLine(Editor.TextArea.Caret.Line);
-        SetStatus($"已处理 1 处冲突，剩余 {blocks.Count - 1} 处。结果尚未保存。可 Ctrl+Z 撤销。");
-    }
-    private async void ResolveClick(object sender, RoutedEventArgs e) => await Guard(() => GitOperationAsync("保存冲突结果并暂存", async git =>
-    {
-        if (ChangesList.SelectedItem is not GitChange change) return;
-        await OpenFileAsync(change.Path);
-        if (ConflictParser.Parse(Editor.Text).Count > 0) throw new InvalidOperationException("仍有未解决的冲突标记，请先完成所有冲突。");
-        await SaveAsync();
-        if (_active?.Dirty == true) return;
-        await git.StageAsync([change.Path]);
-    }));
-
-    private async void ViewChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (!ReferenceEquals(e.Source, Views) || _switchingView || !IsLoaded) return;
-        if (Views.SelectedIndex == 2) { _switchingView = true; try { await Guard(LoadHistoryAsync); } finally { _switchingView = false; } }
-    }
-    private async Task LoadHistoryAsync() { if (_git != null) HistoryEditor.Text = await _git.LogAsync(); }
-    private async void HistoryClick(object sender, RoutedEventArgs e) => await Guard(LoadHistoryAsync);
-    private async void HistoryDoubleClick(object sender, MouseButtonEventArgs e) => await Guard(async () =>
-    {
-        if (_git == null) return;
-        var line = HistoryEditor.Document.GetText(HistoryEditor.Document.GetLineByOffset(HistoryEditor.CaretOffset));
-        var hash = Regex.Match(line, @"\b[0-9a-f]{7,40}\b").Value;
-        if (hash.Length > 0) { CommitEditor.Text = await _git.ShowCommitAsync(hash); SetStatus("提交 " + hash + " · 在 Git 菜单可执行 cherry-pick、revert、tag 等操作"); }
     });
+    private async void DiscardClick(object sender, RoutedEventArgs e) => await Guard(DiscardSelectionAsync);
+    private async void HistoryClick(object sender, RoutedEventArgs e) => await Guard(LoadHistoryAsync);
     private async void SpringDoubleClick(object sender, MouseButtonEventArgs e) { if (SpringList.SelectedItem is SearchHit hit) await Guard(() => OpenFileAsync(hit.Path, hit.Line)); }
+
     private async void MavenDoubleClick(object sender, MouseButtonEventArgs e) { if (MavenList.SelectedItem is MavenModule module) await Guard(() => OpenFileAsync(module.Path)); }
     private void MavenSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (MavenList.SelectedItem is not MavenModule module) return;
-        ShowOutput("Maven · " + module.Artifact, $"{module.Group}:{module.Artifact}:{module.Version}\nPOM: {module.Path}\n模块: {string.Join(", ", module.Modules)}\n\n依赖（不下载、不解析远程 BOM）：\n" + string.Join('\n', module.Dependencies) + (module.Error == null ? "" : "\n" + module.Error));
+        MavenDetails.Text = MavenList.SelectedItem is MavenModule module
+            ? $"{module.Group}:{module.Artifact}:{module.Version}\n{module.Path}\n\n" + string.Join('\n', module.Dependencies) + module.Error : "";
     }
-    private void ShowOutput(string title, string output) { OutputPanel.Visibility = Visibility.Visible; OutputTitle.Text = title; OutputEditor.Text = output; }
-    private void CancelCommandClick(object sender, RoutedEventArgs e) => _command?.Cancel();
-    private void CloseOutputClick(object sender, RoutedEventArgs e) => OutputPanel.Visibility = Visibility.Collapsed;
+    private void ShowOutput(string title, string output)
+    {
+        OutputTitle.Text = title;
+        OutputEditor.Text = output;
+        _bottom = title.StartsWith("git ", StringComparison.Ordinal) ? BottomTool.Console : BottomTool.Run;
+        _focusMode = false;
+        ApplyLayout();
+    }
 
+    private void CancelCommandClick(object sender, RoutedEventArgs e) => _command?.Cancel();
     private void HelpClick(object sender, RoutedEventArgs e) => MessageBox.Show(this,
-        "Ctrl+O  打开项目\nShift × 2 / Ctrl+P  全局文件与符号搜索\nCtrl+N / Ctrl+Alt+Shift+N  类型、方法搜索\nCtrl+Shift+F  全项目内容搜索（支持正则）\nCtrl+F / Ctrl+H  文件内查找 / 替换\nCtrl+B / F12 / Ctrl+鼠标  项目内符号定义\nAlt+Left  返回跳转位置\nCtrl+G  跳转到行:列\nCtrl+S  保存并匹配 .editorconfig\nCtrl+Alt+L  按风格统一缩进空白\nCtrl+D  复制当前行\nCtrl+/  切换行注释\nCtrl+W / Ctrl+Tab  关闭 / 切换文档\nCtrl+K  聚焦提交说明\nCtrl+Enter  提交暂存区\nF5  刷新文件、源码索引与 Git\nCtrl+滚轮  字体缩放\n\nGit 菜单包含分支、stash、合并、rebase、remotes 和完整 Git 参数入口。\n默认不启动 JVM、不自动构建、不上传源码。Java 导航使用源码符号索引，不提供编译器级类型分析。",
+        "Alt+1  项目      Alt+0 / Ctrl+K  提交      Alt+9  Git 日志\nAlt+7  结构      Alt+8  服务      Alt+4  运行输出\n双击 Shift  随处搜索      Ctrl+Shift+A  查找操作\nCtrl+N  类      Ctrl+Shift+N  文件      Ctrl+Alt+Shift+N  符号\nCtrl+Shift+F  项目文本      Ctrl+F  当前文件查找\nCtrl+D  在改动列表查看 Diff，在编辑器复制行\nF4  打开工作区文件      F7 / Shift+F7  下一个 / 上一个差异\nCtrl+B / Ctrl+单击  定义      Ctrl+Alt+Left  返回\nCtrl+Alt+A  暂存所选      Ctrl+Enter  提交勾选文件\nCtrl+Shift+K  推送      Ctrl+Shift+F12  隐藏或恢复工具窗口\nCtrl+S  保存      Ctrl+Alt+L  匹配缩进      Ctrl+W  关闭标签",
+
         "Idea Lite · 快捷键", MessageBoxButton.OK, MessageBoxImage.Information);
 }

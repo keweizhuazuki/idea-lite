@@ -1,0 +1,40 @@
+<Window x:Class="IdeaLite.MergeWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ae="http://icsharpcode.net/sharpdevelop/avalonedit"
+    xmlns:ui="clr-namespace:IdeaLite" Style="{StaticResource {x:Type Window}}"
+    WindowStartupLocation="CenterOwner" Width="1240" Height="710" MinWidth="760" MinHeight="430" Closing="OnClosing">
+  <Grid Background="{StaticResource Bg}">
+    <Grid.RowDefinitions><RowDefinition Height="36"/><RowDefinition/><RowDefinition Height="44"/></Grid.RowDefinitions>
+    <DockPanel Background="{StaticResource Panel}" Margin="0">
+      <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" Margin="5,0">
+        <Button Style="{StaticResource ToolButton}" Click="PreviousClick" ToolTip="上一处冲突"><ui:IdeIcon Kind="Previous"/></Button>
+        <Button Style="{StaticResource ToolButton}" Click="NextClick" ToolTip="下一处冲突"><ui:IdeIcon Kind="Next"/></Button>
+      </StackPanel>
+      <ui:IdeIcon Kind="Merge" Margin="10,0,5,0" Foreground="{StaticResource Accent}"/>
+      <TextBlock x:Name="FileLabel" TextTrimming="CharacterEllipsis"/>
+    </DockPanel>
+    <Grid Grid.Row="1">
+      <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="4"/><ColumnDefinition Width="1.15*"/><ColumnDefinition Width="4"/><ColumnDefinition/></Grid.ColumnDefinitions>
+      <DockPanel><DockPanel DockPanel.Dock="Top" Height="35" Background="{StaticResource Panel}">
+        <Button DockPanel.Dock="Right" Style="{StaticResource FlatButton}" Content="采用左侧 →" Click="OursClick"/>
+        <TextBlock Text="本地 · Ours" Margin="8,0" ToolTip="Git 索引 stage 2"/>
+      </DockPanel><ae:TextEditor x:Name="Ours"/></DockPanel>
+      <GridSplitter Grid.Column="1" ResizeDirection="Columns"/>
+      <DockPanel Grid.Column="2"><DockPanel DockPanel.Dock="Top" Height="35" Background="{StaticResource Panel}">
+        <Button DockPanel.Dock="Right" Style="{StaticResource FlatButton}" Content="保留两者" Click="BothClick"/>
+        <TextBlock Text="合并结果" Margin="8,0" Foreground="{StaticResource Accent}"/>
+      </DockPanel><ae:TextEditor x:Name="ResultEditor"/></DockPanel>
+      <GridSplitter Grid.Column="3" ResizeDirection="Columns"/>
+      <DockPanel Grid.Column="4"><DockPanel DockPanel.Dock="Top" Height="35" Background="{StaticResource Panel}">
+        <Button DockPanel.Dock="Left" Style="{StaticResource FlatButton}" Content="← 采用右侧" Click="TheirsClick"/>
+        <TextBlock Text="传入 · Theirs" HorizontalAlignment="Right" Margin="8,0" ToolTip="Git 索引 stage 3"/>
+      </DockPanel><ae:TextEditor x:Name="Theirs"/></DockPanel>
+    </Grid>
+    <DockPanel Grid.Row="2" Background="{StaticResource Panel}" Margin="0">
+      <Button DockPanel.Dock="Right" x:Name="ApplyButton" Style="{StaticResource Primary}" Content="应用并暂存" Click="ApplyClick" Margin="4,7,10,7"/>
+      <Button DockPanel.Dock="Right" Content="取消" Click="CancelClick" Margin="3,7"/>
+      <TextBlock x:Name="MergeStatus" Margin="12,0" TextTrimming="CharacterEllipsis"/>
+    </DockPanel>
+  </Grid>
+</Window>

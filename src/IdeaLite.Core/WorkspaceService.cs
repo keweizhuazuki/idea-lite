@@ -5,7 +5,7 @@ namespace IdeaLite.Core;
 public sealed record SearchHit(string Name, string Path, int Line, string Kind, string Detail)
 {
     public string DisplayName => Name + "   · " + Kind;
-    public string Location => Path + ":" + Line;
+    public string Location => Kind == "操作" ? Detail : Path + ":" + Line;
     public string Description => Detail == Path ? Kind : Detail;
     public override string ToString() => $"{Name}   {Kind}   {Path}:{Line}  {Detail}";
 }
@@ -93,8 +93,15 @@ public static class WorkspaceService
 
     public static IReadOnlyList<SearchHit> Search(WorkspaceSnapshot snapshot, string query, string mode = "all")
     {
-        if (query.Length == 0) return snapshot.Files.Take(80).Select(p => new SearchHit(Path.GetFileName(p), p, 1, "文件", p)).ToArray();
-        var candidates = mode == "symbols" ? snapshot.Symbols : snapshot.Files.Select(p => new SearchHit(Path.GetFileName(p), p, 1, "文件", p)).Concat(snapshot.Symbols).Concat(snapshot.Spring);
+        var files = snapshot.Files.Select(p => new SearchHit(Path.GetFileName(p), p, 1, "文件", p));
+        IEnumerable<SearchHit> candidates = mode switch
+        {
+            "files" => files,
+            "classes" => snapshot.Symbols.Where(s => s.Kind == "类型"),
+            "symbols" => snapshot.Symbols,
+            _ => files.Concat(snapshot.Symbols).Concat(snapshot.Spring)
+        };
+        if (query.Length == 0) return candidates.Take(80).ToArray();
         return candidates.Select(h => (hit: h, score: Score(h.Name, query, h.Path)))
             .Where(x => x.score >= 0).OrderByDescending(x => x.score).ThenBy(x => x.hit.Name.Length)
             .DistinctBy(x => (x.hit.Path, x.hit.Line, x.hit.Name)).Take(150).Select(x => x.hit).ToArray();

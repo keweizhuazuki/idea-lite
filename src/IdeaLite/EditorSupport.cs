@@ -16,9 +16,9 @@ public static class EditorSupport
 {
     public static void Configure(TextEditor editor, bool readOnly = true)
     {
-        editor.Background = new SolidColorBrush(Color.FromRgb(17, 19, 24));
-        editor.Foreground = new SolidColorBrush(Color.FromRgb(217, 222, 232));
-        editor.FontFamily = new FontFamily("Cascadia Code, Consolas"); editor.FontSize = 14;
+        editor.Background = new SolidColorBrush(Color.FromRgb(30, 31, 34));
+        editor.Foreground = new SolidColorBrush(Color.FromRgb(188, 190, 196));
+        editor.FontFamily = new FontFamily("JetBrains Mono, Consolas"); editor.FontSize = 14;
         editor.LineNumbersForeground = new SolidColorBrush(Color.FromRgb(89, 100, 119));
         editor.ShowLineNumbers = true; editor.IsReadOnly = readOnly;
         editor.HorizontalScrollBarVisibility = System.Windows.Controls.ScrollBarVisibility.Auto;
@@ -27,9 +27,9 @@ public static class EditorSupport
         editor.Options.EnableHyperlinks = false; editor.Options.EnableEmailHyperlinks = false;
         editor.Options.HighlightCurrentLine = !readOnly;
         editor.Options.AllowScrollBelowDocument = true;
-        editor.TextArea.Caret.CaretBrush = new SolidColorBrush(Color.FromRgb(125, 226, 178));
-        editor.TextArea.SelectionBrush = new SolidColorBrush(Color.FromArgb(150, 64, 91, 114));
-        editor.TextArea.IndentationStrategy = new BraceIndentation();
+        editor.TextArea.Caret.CaretBrush = new SolidColorBrush(Color.FromRgb(218, 220, 224));
+        editor.TextArea.SelectionBrush = new SolidColorBrush(Color.FromArgb(185, 48, 73, 110));
+        editor.TextArea.IndentationStrategy = new BraceIndentation(editor);
         var search = SearchPanel.Install(editor);
         search.MarkerBrush = new SolidColorBrush(Color.FromArgb(120, 196, 151, 53));
         search.Resources[SystemColors.WindowBrushKey] = editor.Background;
@@ -53,13 +53,26 @@ public static class EditorSupport
             foreach (var color in definition.NamedHighlightingColors)
             {
                 var name = color.Name.ToLowerInvariant();
-                var hex = name.Contains("comment") ? "#748779" : name.Contains("string") || name.Contains("char") ? "#C3DEA0" :
-                    name.Contains("number") || name.Contains("digit") ? "#E6BA82" : name.Contains("keyword") || name.Contains("modifier") || name.Contains("type") ? "#B7A2EA" : "#8DCBE8";
+                var hex = name.Contains("comment") ? "#7A7E85" : name.Contains("string") || name.Contains("char") ? "#6AAB73" :
+                    name.Contains("number") || name.Contains("digit") ? "#2AACB8" : name.Contains("keyword") || name.Contains("modifier") || name.Contains("type") ? "#CF8E6D" : "#A7C4E4";
                 color.Foreground = new SimpleHighlightingBrush((Color)ColorConverter.ConvertFromString(hex));
             }
             editor.SyntaxHighlighting = definition;
         }
         else editor.SyntaxHighlighting = null;
+    }
+
+    public static void SetDiffText(TextEditor editor, IReadOnlyList<DiffPiece> lines, string path, bool oldSide)
+    {
+        editor.Text = string.Join('\n', lines.Select(l => l.Text ?? ""));
+        Highlight(editor, path);
+        SetLineColors(editor, lines, oldSide);
+        editor.ShowLineNumbers = false;
+        editor.Options.AllowScrollBelowDocument = false;
+        var margin = editor.TextArea.LeftMargins.OfType<DiffNumberMargin>().FirstOrDefault();
+        if (margin == null) { margin = new DiffNumberMargin(); editor.TextArea.LeftMargins.Insert(0, margin); }
+        margin.Numbers = lines.Select(l => l.Position).ToArray();
+        margin.InvalidateVisual();
     }
 
     public static void SetLineColors(TextEditor editor, IReadOnlyList<DiffPiece> lines, bool oldSide)
@@ -80,7 +93,7 @@ public sealed class DiffBackground(ChangeType[] changes, bool oldSide) : IBackgr
         {
             var number = visual.FirstDocumentLine.LineNumber - 1;
             if (number >= changes.Length || changes[number] == ChangeType.Unchanged) continue;
-            var hex = changes[number] == ChangeType.Imaginary ? "#1B1F27" : oldSide ? "#40292F" : "#203B31";
+            var hex = changes[number] == ChangeType.Imaginary ? "#25272A" : changes[number] == ChangeType.Modified ? "#293A50" : oldSide ? "#492D35" : "#294436";
             var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
             foreach (var rect in BackgroundGeometryBuilder.GetRectsForSegment(view, visual.FirstDocumentLine))
                 context.DrawRectangle(brush, null, new Rect(0, rect.Top, Math.Max(view.ActualWidth, 0), rect.Height));
@@ -88,7 +101,7 @@ public sealed class DiffBackground(ChangeType[] changes, bool oldSide) : IBackgr
     }
 }
 
-public sealed class BraceIndentation : DefaultIndentationStrategy
+public sealed class BraceIndentation(TextEditor editor) : DefaultIndentationStrategy
 {
     public override void IndentLine(TextDocument document, DocumentLine line)
     {
@@ -96,8 +109,7 @@ public sealed class BraceIndentation : DefaultIndentationStrategy
         if (line.PreviousLine == null) return;
         var previous = document.GetText(line.PreviousLine).TrimEnd();
         if (!previous.EndsWith('{')) return;
-        var editor = MainWindow.ActiveEditor;
-        var indentation = editor?.Options.ConvertTabsToSpaces == false ? "\t" : new string(' ', editor?.Options.IndentationSize ?? 4);
+        var indentation = !editor.Options.ConvertTabsToSpaces ? "\t" : new string(' ', editor.Options.IndentationSize);
         document.Insert(line.Offset, indentation);
     }
 }

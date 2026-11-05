@@ -144,6 +144,9 @@ await Test("Java types/methods and Spring routes are searchable", () =>
     True(spring.Any(s => s.Name == "GET /orders/{id}"));
     var snapshot = new WorkspaceSnapshot("x", ["src/OrderController.java"], symbols, spring, [], false);
     True(WorkspaceService.Search(snapshot, "OC").Count > 0);
+    True(WorkspaceService.Search(snapshot, "", "files").All(hit => hit.Kind == "文件"));
+    Equal("OrderController", WorkspaceService.Search(snapshot, "", "classes").Single().Name);
+    True(WorkspaceService.Search(snapshot, "findById", "symbols").Any(hit => hit.Kind == "方法"));
     Equal(1, WorkspaceService.FindDefinitions(snapshot, "findById", "src/OrderController.java", "package demo.shop;").Count);
     return Task.CompletedTask;
 });
@@ -281,6 +284,103 @@ await Test("Maven-style PowerShell invocation: Unicode, quoting and missing tool
     Equal(value, (await Invoke("git", ["config", "test.literal"])).EnsureSuccess().Output.TrimEnd());
     var missing = await Invoke("idea-lite-missing-maven-command.cmd", ["test"]);
     Equal(1, missing.ExitCode); True(missing.Error.Contains("idea-lite-missing-maven-command.cmd"));
+});
+
+await Test("Log reviews root, renamed and deleted blobs independently of working changes", async () =>
+{
+    var git = await Repository("history-files");
+    Equal(0, (await git.RevisionsAsync(null)).Count);
+    string original = "原始 文件.java", renamed = "重命名.java";
+    var content = "class Example {}\n";
+    await File.WriteAllTextAsync(Path.Combine(git.Root, original), content);
+    await git.StageAsync(["."]); await git.CommitAsync("root");
+    (await git.RunAsync(["mv", "--", original, renamed])).EnsureSuccess();
+    await git.CommitAsync("rename");
+    (await git.RunAsync(["rm", "--", renamed])).EnsureSuccess();
+    await git.CommitAsync("delete");
+    await File.WriteAllTextAsync(Path.Combine(git.Root, renamed), "untracked working copy\n");
+    var revisions = await git.RevisionsAsync("HEAD");
+    Equal(3, revisions.Count);
+    var remove = (await git.RevisionFilesAsync(revisions[0])).Single();
+    var move = (await git.RevisionFilesAsync(revisions[1])).Single();
+    var add = (await git.RevisionFilesAsync(revisions[2])).Single();
+    Equal('D', remove.Status); Equal('R', move.Status); Equal('A', add.Status);
+    Equal(original, move.OldPath); Equal(renamed, move.Path);
+    Equal("", (await git.RevisionDiffAsync(revisions[0], remove)).NewText);
+    var comparison = await git.RevisionDiffAsync(revisions[1], move);
+    Equal(content, comparison.OldText); Equal(content, comparison.NewText);
+    Equal("", (await git.RevisionDiffAsync(revisions[2], add)).OldText);
+});
+
+await Test("Branch filtering, merge parents and first-parent changes in the Git log", async () =>
+{
+    var git = await Repository("history-graph");
+    async Task CommitFile(string name)
+    {
+        await File.WriteAllTextAsync(Path.Combine(git.Root, name), name + "\n");
+        await git.StageAsync([name]); await git.CommitAsync(name);
+    }
+    await CommitFile("base");
+    (await git.RunAsync(["switch", "-c", "feature"])).EnsureSuccess();
+    await CommitFile("feature.txt");
+    (await git.RunAsync(["switch", "main"])).EnsureSuccess();
+    await CommitFile("main.txt");
+    (await git.RunAsync(["merge", "--no-ff", "feature", "-m", "merge topic"])).EnsureSuccess();
+    var refs = await git.ReferencesAsync();
+    True(refs.Single(r => r.Name == "main").Current);
+    var all = await git.RevisionsAsync(null);
+    var merge = all.Single(r => r.Subject == "merge topic");
+    Equal(2, merge.Parents.Length);
+    Equal("feature.txt", (await git.RevisionFilesAsync(merge)).Single().Path);
+    var feature = await git.RevisionsAsync(refs.Single(r => r.Name == "feature").FullName);
+    Equal(2, feature.Count); True(feature.All(r => r.Subject != "main.txt"));
+});
+
+await Test("Amend replaces the selected branch tip and retains the staged tree", async () =>
+{
+    var git = await Repository("amend");
+    await File.WriteAllTextAsync(Path.Combine(git.Root, "first.txt"), "first");
+    await git.StageAsync(["."]); await git.CommitAsync("first");
+    var previous = (await git.RevisionsAsync("HEAD")).Single();
+    await File.WriteAllTextAsync(Path.Combine(git.Root, "next.txt"), "next");
+    await git.StageAsync(["next.txt"]); await git.CommitAsync("amended", true);
+    var latest = (await git.RevisionsAsync("HEAD")).Single();
+    True(latest.Hash != previous.Hash); Equal("amended", latest.Subject);
+    Equal(2, (await git.RevisionFilesAsync(latest)).Count);
+});
+
+await Test("Checked-file commit excludes unrelated staging and includes selected new files", async () =>
+{
+    var git = await Repository("checked-commit");
+    foreach (var name in new[] { "selected.txt", "leave-staged.txt", "leave-working.txt" })
+        await File.WriteAllTextAsync(Path.Combine(git.Root, name), "base");
+    await git.StageAsync(["."]); await git.CommitAsync("base");
+    await File.WriteAllTextAsync(Path.Combine(git.Root, "leave-staged.txt"), "keep staged");
+    await git.StageAsync(["leave-staged.txt"]);
+    await File.WriteAllTextAsync(Path.Combine(git.Root, "leave-working.txt"), "keep working");
+    await File.WriteAllTextAsync(Path.Combine(git.Root, "selected.txt"), "chosen working content");
+    await File.WriteAllTextAsync(Path.Combine(git.Root, "[new] 中文.txt"), "chosen new content");
+    await git.CommitSelectedAsync(["selected.txt", "[new] 中文.txt"], "selected only");
+    var latest = (await git.RevisionsAsync("HEAD"))[0];
+    var committed = (await git.RevisionFilesAsync(latest)).Select(file => file.Path).Order().ToArray();
+    True(committed.SequenceEqual(new[] { "[new] 中文.txt", "selected.txt" }.Order()));
+    var remaining = (await git.StatusAsync()).Changes;
+    True(remaining.Single(c => c.Path == "leave-staged.txt").IsStaged);
+    True(remaining.Single(c => c.Path == "leave-working.txt").HasWorkingChanges);
+    Equal("keep staged", (await git.RunAsync(["show", ":leave-staged.txt"])).Output);
+});
+
+await Test("Checked-file commit handles renames and empty selection without consuming staging", async () =>
+{
+    var git = await Repository("checked-rename");
+    await File.WriteAllTextAsync(Path.Combine(git.Root, "before.txt"), "same content\n");
+    await git.StageAsync(["."]); await git.CommitAsync("base");
+    (await git.RunAsync(["mv", "--", "before.txt", "after.txt"])).EnsureSuccess();
+    await Throws<InvalidOperationException>(() => git.CommitSelectedAsync([], "empty"));
+    await git.CommitSelectedAsync(["after.txt"], "rename only");
+    var files = await git.RevisionFilesAsync((await git.RevisionsAsync("HEAD"))[0]);
+    Equal('R', files.Single().Status);
+    Equal("before.txt", files.Single().OldPath);
 });
 
 Console.WriteLine($"\n{passed} passed, {failed} failed.");

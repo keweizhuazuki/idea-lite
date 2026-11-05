@@ -11,7 +11,12 @@ public partial class MainWindow
 {
     private void GitMenuClick(object sender, RoutedEventArgs e)
     {
-        var menu = new ContextMenu();
+        var menu = PopupMenu(sender as Button ?? BranchButton);
+        Add("提交…", () => ActivateCommitAsync(false));
+        Add("拉取（仅快进）", () => RunGitCommandAsync(["pull", "--ff-only"]));
+        Add("推送…", PushWithPreviewAsync);
+        Add("显示 Git 日志", () => SelectBottomAsync(BottomTool.Log, false));
+        menu.Items.Add(new Separator());
         Add("刷新 / Fetch", async () => await RunGitCommandAsync(["fetch", "--all"]));
         Add("分支与标签…", ShowBranchesAsync);
         Add("创建分支…", async () =>
@@ -50,7 +55,7 @@ public partial class MainWindow
             (await service.RunAsync(["init", "-b", "main"])).EnsureSuccess();
             _git = service; await RefreshWorkspaceAsync();
         });
-        menu.PlacementTarget = sender as Button; menu.IsOpen = true;
+        menu.IsOpen = true;
         void Add(string header, Func<Task> action)
         {
             var item = new MenuItem { Header = header };
@@ -62,12 +67,109 @@ public partial class MainWindow
 
     private async Task ShowBranchesAsync()
     {
-        if (_git == null) return;
-        var branches = (await _git.RunAsync(["branch", "--all", "--no-color"])).EnsureSuccess().Output;
-        var tags = (await _git.RunAsync(["tag", "--list"])).EnsureSuccess().Output;
-        ShowOutput("分支 / 标签", branches + "\n标签：\n" + tags);
-        var value = Dialogs.Prompt(this, "切换分支", "输入本地分支名；输入新名称可用 Git 菜单创建分支。完整列表见输出面板。");
-        if (!string.IsNullOrWhiteSpace(value) && await CheckUnsavedBuffersAsync()) await RunGitCommandAsync(["switch", value]);
+        var git = _git;
+        if (git == null)
+        {
+            GitMenuClick(BranchButton, new RoutedEventArgs());
+            return;
+        }
+        var refs = await git.ReferencesAsync();
+        if (git != _git) return;
+        var popup = new System.Windows.Controls.Primitives.Popup
+        {
+            PlacementTarget = BranchButton,
+            Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom,
+            StaysOpen = false,
+            AllowsTransparency = true,
+            VerticalOffset = 3
+        };
+        var panel = new DockPanel { Margin = new Thickness(7) };
+        var search = new TextBox { ToolTip = "搜索分支或标签", Margin = new Thickness(2, 2, 2, 5) };
+        System.Windows.Automation.AutomationProperties.SetName(search, "搜索分支或标签");
+        DockPanel.SetDock(search, Dock.Top); panel.Children.Add(search);
+        var actions = new StackPanel { Orientation = Orientation.Horizontal };
+        var create = new Button { Content = "新建分支…", Style = (Style)FindResource("FlatButton") };
+        var checkout = new Button { Content = "签出", Style = (Style)FindResource("Primary") };
+        actions.Children.Add(create); actions.Children.Add(checkout);
+        DockPanel.SetDock(actions, Dock.Bottom); panel.Children.Add(actions);
+        var list = new ListBox { ItemTemplate = (DataTemplate)FindResource("BranchRow") };
+        panel.Children.Add(list);
+        var border = new Border
+        {
+            Width = 350,
+            Height = 365,
+            Background = (System.Windows.Media.Brush)FindResource("Panel"),
+            BorderBrush = (System.Windows.Media.Brush)FindResource("Stroke"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(5),
+            Child = panel
+        };
+        popup.Child = border;
+        void Filter()
+        {
+            list.ItemsSource = refs.Where(r => r.Name.Contains(search.Text.Trim(), StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(r => r.Current).Take(500).ToList();
+            list.SelectedIndex = list.Items.Count > 0 ? 0 : -1;
+        }
+        async Task Checkout()
+        {
+            if (list.SelectedItem is not GitRef selected) return;
+            popup.IsOpen = false;
+            if (selected.Current || git != _git) return;
+            string[] args = selected.Group switch
+            {
+                "远程" => ["switch", "--track", selected.Name],
+                "标签" => ["switch", "--detach", selected.FullName],
+                _ => ["switch", "--", selected.Name]
+            };
+            await Guard(() => RunGitCommandAsync(args));
+        }
+        search.TextChanged += (_, _) => Filter();
+        panel.PreviewKeyDown += async (_, e) =>
+        {
+            if (e.Key == System.Windows.Input.Key.Escape) { e.Handled = true; popup.IsOpen = false; }
+            else if (e.Key == System.Windows.Input.Key.Enter) { e.Handled = true; await Checkout(); }
+            else if (e.Key == System.Windows.Input.Key.Down && search.IsKeyboardFocusWithin) { e.Handled = true; list.Focus(); }
+        };
+        create.Click += async (_, _) =>
+        {
+            popup.IsOpen = false;
+            var name = Dialogs.Prompt(this, "新建分支", "分支名称");
+            if (!string.IsNullOrWhiteSpace(name)) await Guard(() => RunGitCommandAsync(["switch", "-c", name]));
+        };
+        checkout.Click += async (_, _) => await Checkout();
+        list.MouseDoubleClick += async (_, _) => await Checkout();
+        Filter();
+        popup.Opened += (_, _) => search.Focus();
+        popup.IsOpen = true;
+    }
+
+    private async Task PushWithPreviewAsync()
+    {
+        var git = _git;
+        if (git == null || _commandBusy) return;
+        var head = await git.RunAsync(["symbolic-ref", "--short", "-q", "HEAD"]);
+        if (head.ExitCode != 0) { SetStatus("请先切换到一个本地分支。"); return; }
+        var branch = head.Output.Trim();
+        var remotes = (await git.RunAsync(["remote"])).EnsureSuccess().Output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (remotes.Length == 0) { SetStatus("没有远程仓库，可在 Git → 完整 Git 命令中配置 remote。"); return; }
+        var upstream = (await git.RunAsync(["for-each-ref", "--format=%(upstream:remotename)%00%(upstream:remoteref)%00%(upstream:short)", "refs/heads/" + branch])).EnsureSuccess().Output.TrimEnd('\r', '\n').Split('\0');
+        bool tracked = upstream.Length == 3 && remotes.Contains(upstream[0]) && upstream[1].StartsWith("refs/heads/", StringComparison.Ordinal);
+        var remote = tracked ? upstream[0] : remotes.Contains("origin") ? "origin" : remotes[0];
+        if (!tracked && remotes.Length > 1)
+        {
+            var choice = Dialogs.Prompt(this, "推送到远程仓库", "选择远程名称：" + string.Join("、", remotes), remote);
+            if (choice == null) return;
+            if (!remotes.Contains(choice)) throw new ArgumentException("请选择已配置的远程名称。");
+            remote = choice;
+        }
+        var target = tracked ? upstream[1] : "refs/heads/" + branch;
+        var range = tracked ? upstream[2] + "..refs/heads/" + branch : "refs/heads/" + branch;
+        var commits = await git.RunAsync(["log", "-30", "--format=%h  %s", range, "--"]);
+        if (commits.ExitCode != 0) throw new InvalidOperationException(commits.Combined.Trim());
+        if (git != _git || !Dialogs.PushPreview(this, branch + "  →  " + remote + "/" + target["refs/heads/".Length..], commits.Output)) return;
+        var refspec = "refs/heads/" + branch + ":" + target;
+        await RunGitCommandAsync(tracked ? ["push", "--", remote, refspec] : ["push", "-u", "--", remote, refspec]);
     }
 
     private async Task<bool> CheckUnsavedBuffersAsync()
@@ -93,7 +195,7 @@ public partial class MainWindow
     private async Task AdvancedGitAsync(string initial = "")
     {
         if (_git == null) return;
-        var value = Dialogs.Prompt(this, "完整 Git 命令", "直接输入 git 后面的参数，支持引号，不经过 shell。\n例如：rebase --continue / remote add origin URL / push -u origin main / tag v0.1.0 / reflog / blame -- src/App.java", initial);
+        var value = Dialogs.Prompt(this, "完整 Git 命令", "直接输入 git 后面的参数，支持引号，不经过 shell。\n例如：rebase --continue / remote add origin URL / push -u origin main / tag release-name / reflog / blame -- src/App.java", initial);
         if (string.IsNullOrWhiteSpace(value)) return;
         var arguments = ProcessRunner.SplitArguments(value);
         if (arguments.FirstOrDefault() == "git") arguments = arguments[1..];

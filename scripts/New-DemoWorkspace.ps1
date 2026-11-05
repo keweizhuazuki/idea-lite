@@ -1,32 +1,49 @@
 param([string]$Destination = 'D:\Codex\work\idea-lite-demo')
 $ErrorActionPreference = 'Stop'
 $destinationPath = [IO.Path]::GetFullPath($Destination)
-if (Test-Path -LiteralPath $destinationPath) { throw "Destination already exists: $destinationPath. Choose a new empty path." }
+if (Test-Path -LiteralPath $destinationPath) { throw "Destination already exists: $destinationPath. Choose a new path." }
 $sourcePath = Join-Path $PSScriptRoot '..\samples\spring-shop'
 New-Item -ItemType Directory -Path $destinationPath | Out-Null
-Copy-Item -LiteralPath (Join-Path $sourcePath 'pom.xml') -Destination $destinationPath
-Copy-Item -LiteralPath (Join-Path $sourcePath 'README.md') -Destination $destinationPath
-Copy-Item -LiteralPath (Join-Path $sourcePath 'src') -Destination $destinationPath -Recurse
-Set-Content -LiteralPath (Join-Path $destinationPath '.gitignore') -Value "target/`n.idea/" -Encoding utf8
+foreach ($name in @('pom.xml','README.md','src')) {
+    Copy-Item -LiteralPath (Join-Path $sourcePath $name) -Destination $destinationPath -Recurse
+}
+$utf8 = New-Object Text.UTF8Encoding $false
+function Invoke-DemoGit {
+    & git @args
+    if ($LASTEXITCODE -ne 0) { throw "Demo Git command failed: $args" }
+}
 Push-Location -LiteralPath $destinationPath
 try {
-    git init -b main
-    git config user.name 'Idea Lite Demo'
-    git config user.email 'demo@example.invalid'
-    git config core.autocrlf false
-    git config commit.gpgsign false
-    git add -- .
-    git commit -m 'Initialize Spring shop sample'
-    git switch -c feature/order-review
-    $servicePath = Join-Path $destinationPath 'src\main\java\dev\idealite\shop\OrderService.java'
-    $text = [IO.File]::ReadAllText($servicePath).Replace('399)', '349)')
-    [IO.File]::WriteAllText($servicePath, $text, (New-Object Text.UTF8Encoding $false))
-    git add -- .
-    git commit -m 'Adjust keyboard price for the autumn sale'
-    $text = $text.Replace('.orElseThrow();', '.orElseThrow(() -> new IllegalArgumentException("Order not found: " + id));')
-    [IO.File]::WriteAllText($servicePath, $text, (New-Object Text.UTF8Encoding $false))
-    $controllerPath = Join-Path $destinationPath 'src\main\java\dev\idealite\shop\OrderController.java'
-    $controller = [IO.File]::ReadAllText($controllerPath).Replace('@GetMapping("/{id}")', '@GetMapping("/{id:[0-9]+}")')
-    [IO.File]::WriteAllText($controllerPath, $controller, (New-Object Text.UTF8Encoding $false))
-    Write-Output "Demo workspace ready: $destinationPath"
+    [IO.File]::WriteAllText((Join-Path $destinationPath '.gitignore'), "target/$([char]10).idea/$([char]10)", $utf8)
+    Invoke-DemoGit init -b main
+    Invoke-DemoGit config user.name 'Idea Lite Demo'
+    Invoke-DemoGit config user.email 'demo@example.invalid'
+    Invoke-DemoGit config core.autocrlf false
+    Invoke-DemoGit config commit.gpgsign false
+    Invoke-DemoGit add -- .
+    Invoke-DemoGit commit -m 'Initialize Spring shop'
+    $javaPath = Join-Path $destinationPath 'src\main\java\dev\idealite\shop'
+    $servicePath = Join-Path $javaPath 'OrderService.java'
+    $controllerPath = Join-Path $javaPath 'OrderController.java'
+
+    Invoke-DemoGit switch -c feature/order-lookup
+    $controller = [IO.File]::ReadAllText($controllerPath).Replace('@GetMapping("/{id}")', '@GetMapping("/id/{id}")')
+    [IO.File]::WriteAllText($controllerPath, $controller, $utf8)
+    Invoke-DemoGit add -- .
+    Invoke-DemoGit commit -m 'Expose the order lookup endpoint'
+
+    Invoke-DemoGit switch main
+    $service = [IO.File]::ReadAllText($servicePath).Replace('399)', '349)')
+    [IO.File]::WriteAllText($servicePath, $service, $utf8)
+    Invoke-DemoGit add -- .
+    Invoke-DemoGit commit -m 'Adjust catalog prices'
+    Invoke-DemoGit merge --no-ff feature/order-lookup -m 'Merge order lookup into the catalog'
+    Invoke-DemoGit switch -c feature/order-review
+
+    $service = $service.Replace('.orElseThrow();', '.orElseThrow(() -> new IllegalArgumentException("Order not found: " + id));')
+    [IO.File]::WriteAllText($servicePath, $service, $utf8)
+    Invoke-DemoGit add -- src/main/java/dev/idealite/shop/OrderService.java
+    [IO.File]::WriteAllText($servicePath, $service.Replace('349)', '329)'), $utf8)
+    [IO.File]::WriteAllText($controllerPath, $controller.Replace('/id/{id}', '/id/{id:[0-9]+}'), $utf8)
+    Write-Output "Demo ready: $destinationPath"
 } finally { Pop-Location }

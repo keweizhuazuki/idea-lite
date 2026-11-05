@@ -7,7 +7,7 @@
     <Deterministic>true</Deterministic>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <Authors>Idea Lite contributors</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>

@@ -15,7 +15,7 @@ public sealed record GitChange(string Path, string? OriginalPath, char Index, ch
 public sealed record GitStatus(string Branch, IReadOnlyList<GitChange> Changes);
 public sealed record GitDiff(string OldText, string NewText, string OldLabel, string NewLabel);
 
-public sealed class GitService(string root)
+public sealed partial class GitService(string root)
 {
     public string Root { get; } = Path.GetFullPath(root);
 
@@ -63,10 +63,11 @@ public sealed class GitService(string root)
         (await RunAsync(args.Concat(paths))).EnsureSuccess();
     }
 
-    public async Task CommitAsync(string message)
+    public async Task CommitAsync(string message, bool amend = false)
     {
         if (string.IsNullOrWhiteSpace(message)) throw new ArgumentException("请填写提交说明。");
-        (await RunAsync(["commit", "--file=-"], input: message)).EnsureSuccess();
+        var args = amend ? new[] { "commit", "--amend", "--file=-" } : new[] { "commit", "--file=-" };
+        (await RunAsync(args, input: message)).EnsureSuccess();
     }
 
     private async Task<string> ReadVersionAsync(string revision, string path, CancellationToken token)
