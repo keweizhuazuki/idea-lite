@@ -2,7 +2,7 @@ using System.Globalization;
 
 namespace IdeaLite.Core;
 
-public sealed record GitRef(string FullName, string Name, string Group, bool Current);
+public sealed record GitRef(string FullName, string Name, string Group, bool Current, string Upstream = "");
 public sealed record GitRevision(string Hash, string[] Parents, string References, string Author,
     DateTimeOffset Date, string Subject)
 {
@@ -17,19 +17,28 @@ public sealed record RevisionFile(string Path, string OldPath, char Status)
 
 public sealed partial class GitService
 {
+    public async Task<IReadOnlyList<string>> RecentBranchesAsync(CancellationToken token = default)
+    {
+        var result = await RunAsync(["reflog", "-30", "--format=%gs"], token);
+        if (result.ExitCode != 0) return [];
+        return result.Output.Split('\n').Where(line => line.StartsWith("checkout: moving from ", StringComparison.Ordinal) && line.Contains(" to ", StringComparison.Ordinal))
+            .Select(line => line[(line.LastIndexOf(" to ", StringComparison.Ordinal) + 4)..].TrimEnd('\r'))
+            .Distinct(StringComparer.Ordinal).Take(5).ToArray();
+    }
+
     public async Task<IReadOnlyList<GitRef>> ReferencesAsync(CancellationToken token = default)
     {
-        var output = (await RunAsync(["for-each-ref", "--sort=refname", "--format=%(refname)%00%(HEAD)%00%(symref)",
+        var output = (await RunAsync(["for-each-ref", "--sort=refname", "--format=%(refname)%00%(HEAD)%00%(symref)%00%(upstream:short)",
             "refs/heads", "refs/remotes", "refs/tags"], token)).EnsureSuccess().Output;
         var result = new List<GitRef>();
         foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
             var fields = line.TrimEnd('\r').Split('\0');
-            if (fields.Length != 3 || fields[2].Length != 0) continue;
+            if (fields.Length != 4 || fields[2].Length != 0) continue;
             var parts = fields[0].Split('/', 3);
             if (parts.Length != 3) continue;
             var group = parts[1] switch { "heads" => "本地", "remotes" => "远程", _ => "标签" };
-            result.Add(new(fields[0], parts[2], group, fields[1] == "*"));
+            result.Add(new(fields[0], parts[2], group, fields[1] == "*", fields[3]));
         }
         return result;
     }

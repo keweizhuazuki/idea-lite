@@ -2,6 +2,14 @@ using System.Text;
 using IdeaLite.Core;
 
 if (args.Contains("--wait")) { await Task.Delay(30_000); return 0; }
+if (args.Contains("--stream-probe"))
+{
+    Console.OutputEncoding = new UTF8Encoding(false);
+    Console.Write("first 中文\n"); Console.Out.Flush();
+    Console.Error.Write("warning 中文\n"); Console.Error.Flush();
+    await Task.Delay(1500);
+    Console.Write("last\n"); return 0;
+}
 
 var parent = Environment.GetEnvironmentVariable("IDEALITE_TEST_TEMP") ?? (Directory.Exists(@"D:\Codex\work") ? @"D:\Codex\work" : Path.GetTempPath());
 var temporary = Path.GetFullPath(Path.Combine(parent, "idea-lite-tests-" + Guid.NewGuid().ToString("N")));
@@ -17,6 +25,8 @@ async Task Throws<T>(Func<Task> action) where T : Exception
 }
 async Task Test(string name, Func<Task> action)
 {
+    var filter = args.FirstOrDefault(argument => argument.StartsWith("--filter=", StringComparison.Ordinal));
+    if (filter != null && !name.Contains(filter[9..], StringComparison.OrdinalIgnoreCase)) return;
     try { await action(); passed++; Console.WriteLine("PASS " + name); }
     catch (Exception e) { failed++; Console.WriteLine("FAIL " + name + "\n" + e); }
 }
@@ -194,6 +204,64 @@ await Test("Porcelain NUL parser handles rename, unicode and unusual paths", () 
     return Task.CompletedTask;
 });
 
+await Test("Git root uses a native absolute path for Windows shell dialogs", async () =>
+{
+    var git = await Repository("路径 with spaces");
+    var root = await GitService.FindRootAsync(git.Root);
+    Equal(Path.GetFullPath(git.Root), root);
+    True(Directory.Exists(root));
+    if (OperatingSystem.IsWindows()) True(!root!.Contains('/'), "Git-style slashes reached the Windows shell");
+});
+
+await Test("Git discovery distinguishes ordinary directories from broken repositories", async () =>
+{
+    Equal<string?>(null, await GitService.FindRootAsync(Folder("ordinary-folder")));
+    var git = await Repository("broken-git");
+    await File.WriteAllTextAsync(Path.Combine(git.Root, ".git", "config"), "[invalid config");
+    await Throws<InvalidOperationException>(() => GitService.FindRootAsync(git.Root));
+});
+
+if (OperatingSystem.IsWindows() && File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Git", "cmd", "git.exe")))
+await Test("Installed Git is found when Explorer PATH does not contain Git", async () =>
+{
+    var git = await Repository("explorer-path");
+    var previous = Environment.GetEnvironmentVariable("PATH");
+    try
+    {
+        Environment.SetEnvironmentVariable("PATH", Environment.SystemDirectory);
+        True(Path.IsPathFullyQualified(GitService.ExecutablePath), "Git installation was not discovered");
+        Equal(git.Root, await GitService.FindRootAsync(git.Root));
+        Equal("main", (await git.StatusAsync()).Branch.Split(' ').Last());
+    }
+    finally { Environment.SetEnvironmentVariable("PATH", previous); }
+});
+
+if (args.Contains("--with-wsl"))
+{
+    await Test("WSL paths and quoted arguments preserve Unicode and shell metacharacters", async () =>
+    {
+        var text = "中文 'quoted' $not_a_variable `literal`";
+        var result = await WslProcess.RunAsync("printf '%s' " + WslProcess.Quote(text), temporary);
+        True(result.ExitCode == 0, result.Combined); Equal(text, result.Output);
+    });
+    await Test("Stopping a WSL build terminates its Linux process group", async () =>
+    {
+        using var cancellation = new CancellationTokenSource();
+        var output = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var running = WslProcess.RunAsync("echo $$; sleep 30; echo should-not-run", temporary, cancellation.Token, chunk => output.TrySetResult(chunk));
+        var pid = (await output.Task.WaitAsync(TimeSpan.FromSeconds(15))).Trim();
+        True(int.TryParse(pid, out _), "Missing Linux process id: " + pid);
+        cancellation.Cancel();
+        await Throws<OperationCanceledException>(() => running);
+        var check = await WslProcess.RunAsync("if kill -0 -- -" + pid + " 2>/dev/null; then exit 1; fi", temporary);
+        Equal(0, check.ExitCode);
+    });
+    await Test("WSL build timeout reports timeout instead of success", async () =>
+    {
+        await Throws<TimeoutException>(() => WslProcess.RunAsync("sleep 30", temporary, timeoutSeconds: 1));
+    });
+}
+
 await Test("Unborn repo: stage, diff and unstage leave working file intact", async () =>
 {
     var git = await Repository("unborn"); var name = "-中文 file.java";
@@ -256,6 +324,7 @@ await Test("Stash, local remote push/fetch and fast-forward pull", async () =>
     var bare = Folder("remote.git"); (await ProcessRunner.RunAsync("git", ["init", "--bare", "-b", "main"], bare)).EnsureSuccess();
     (await git.RunAsync(["remote", "add", "origin", bare])).EnsureSuccess(); (await git.RunAsync(["push", "-u", "origin", "main"])).EnsureSuccess();
     (await git.RunAsync(["fetch", "--all"])).EnsureSuccess(); (await git.RunAsync(["pull", "--ff-only"])).EnsureSuccess();
+    Equal("origin/main", (await git.ReferencesAsync()).Single(reference => reference.Current).Upstream);
 });
 
 await Test("Arguments are passed literally without shell execution", async () =>
@@ -264,6 +333,23 @@ await Test("Arguments are passed literally without shell execution", async () =>
     (await git.RunAsync(["config", "test.literal", value])).EnsureSuccess(); Equal(value, (await git.RunAsync(["config", "test.literal"])).Output.TrimEnd());
     var split = ProcessRunner.SplitArguments("commit -m \"message with spaces\" -- 'a b.java'");
     Equal(5, split.Length); Equal("message with spaces", split[2]); Equal("a b.java", split[4]);
+});
+
+await Test("Process output arrives before exit from stdout and stderr", async () =>
+{
+    var first = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var chunks = new System.Collections.Concurrent.ConcurrentQueue<string>();
+    var executable = Environment.ProcessPath!;
+    var arguments = executable.EndsWith("dotnet.exe", StringComparison.OrdinalIgnoreCase) || Path.GetFileName(executable) == "dotnet"
+        ? new[] { typeof(CommandResult).Assembly.Location.Replace("IdeaLite.Core.dll", "IdeaLite.Tests.dll"), "--stream-probe" } : new[] { "--stream-probe" };
+    var running = ProcessRunner.RunAsync(executable, arguments, temporary, onOutput: chunk => { chunks.Enqueue(chunk); first.TrySetResult(); });
+    await first.Task.WaitAsync(TimeSpan.FromSeconds(10));
+    True(!running.IsCompleted, "Output was buffered until process exit");
+    var result = await running;
+    Equal(0, result.ExitCode);
+    True(result.Output.Contains("first 中文") && result.Output.Contains("last"));
+    True(result.Error.Contains("warning 中文"));
+    True(string.Concat(chunks).Contains("warning 中文"), "stderr did not stream");
 });
 
 await Test("Child process timeout kills and releases process", async () =>
@@ -279,7 +365,7 @@ await Test("Maven-style PowerShell invocation: Unicode, quoting and missing tool
     if (!OperatingSystem.IsWindows()) return;
     var git = await Repository("powershell");
     var value = "中文 'quotes' $(not-executed) & | >";
-    async Task<CommandResult> Invoke(string executable, string[] arguments) => await ProcessRunner.RunAsync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", ProcessRunner.PowerShellInvocation(executable, arguments)], git.Root);
+    async Task<CommandResult> Invoke(string executable, string[] arguments) => await ProcessRunner.RunAsync(ProcessRunner.PowerShellExecutable, ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", ProcessRunner.PowerShellInvocation(executable, arguments)], git.Root);
     (await Invoke("git", ["config", "test.literal", value])).EnsureSuccess();
     Equal(value, (await Invoke("git", ["config", "test.literal"])).EnsureSuccess().Output.TrimEnd());
     var missing = await Invoke("idea-lite-missing-maven-command.cmd", ["test"]);
@@ -328,6 +414,7 @@ await Test("Branch filtering, merge parents and first-parent changes in the Git 
     (await git.RunAsync(["merge", "--no-ff", "feature", "-m", "merge topic"])).EnsureSuccess();
     var refs = await git.ReferencesAsync();
     True(refs.Single(r => r.Name == "main").Current);
+    True((await git.RecentBranchesAsync()).SequenceEqual(new[] { "main", "feature" }));
     var all = await git.RevisionsAsync(null);
     var merge = all.Single(r => r.Subject == "merge topic");
     Equal(2, merge.Parents.Length);
@@ -382,6 +469,7 @@ await Test("Checked-file commit handles renames and empty selection without cons
     Equal('R', files.Single().Status);
     Equal("before.txt", files.Single().OldPath);
 });
+
 
 Console.WriteLine($"\n{passed} passed, {failed} failed.");
 if (failed == 0 && !args.Contains("--keep"))

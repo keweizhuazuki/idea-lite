@@ -15,8 +15,13 @@ public sealed record CommandResult(int ExitCode, string Output, string Error)
 
 public static class ProcessRunner
 {
+    public static string PowerShellExecutable => Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
+
+    /// <summary>
+    /// 执行命令并保留有上限的输出；输出回调可能由两个读取线程并发调用。
+    /// </summary>
     public static async Task<CommandResult> RunAsync(string executable, IEnumerable<string> arguments,
-        string directory, string? input = null, CancellationToken cancellationToken = default, int timeoutSeconds = 60)
+        string directory, string? input = null, CancellationToken cancellationToken = default, int timeoutSeconds = 60, Action<string>? onOutput = null)
     {
         var info = new ProcessStartInfo(executable)
         {
@@ -42,8 +47,8 @@ public static class ProcessRunner
             try { if (!process.HasExited) process.Kill(true); }
             catch (InvalidOperationException) { }
         });
-        var stdout = ReadBoundedAsync(process.StandardOutput, timeout.Token);
-        var stderr = ReadBoundedAsync(process.StandardError, timeout.Token);
+        var stdout = ReadBoundedAsync(process.StandardOutput, timeout.Token, onOutput);
+        var stderr = ReadBoundedAsync(process.StandardError, timeout.Token, onOutput);
         try
         {
             if (input != null) await process.StandardInput.WriteAsync(input.AsMemory(), timeout.Token);
@@ -62,18 +67,19 @@ public static class ProcessRunner
         }
     }
 
-    private static async Task<string> ReadBoundedAsync(StreamReader reader, CancellationToken token)
+    private static async Task<string> ReadBoundedAsync(StreamReader reader, CancellationToken token, Action<string>? onOutput)
     {
         const int limit = 8 * 1024 * 1024;
         var result = new StringBuilder();
         var buffer = new char[8192];
         var truncated = false;
         int count;
-        while ((count = await reader.ReadAsync(buffer, token)) > 0)
+        while ((count = await reader.ReadAsync(buffer, token).ConfigureAwait(false)) > 0)
         {
             var keep = Math.Min(count, limit - result.Length);
             if (keep > 0) result.Append(buffer, 0, keep);
             if (keep < count) truncated = true;
+            if (keep > 0) onOutput?.Invoke(new string(buffer, 0, keep));
         }
         if (truncated) throw new InvalidOperationException("命令输出超过 8 MiB 限制。请缩小范围或使用终端。");
         return result.ToString();
@@ -103,10 +109,11 @@ public static class ProcessRunner
         return result.ToArray();
     }
 
-    public static string PowerShellInvocation(string executable, IEnumerable<string> arguments)
+    public static string PowerShellInvocation(string executable, IEnumerable<string> arguments, string javaHome = "")
     {
         static string Quote(string input) => "'" + input.Replace("'", "''") + "'";
-        var script = "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); $OutputEncoding=[Console]::OutputEncoding; try { & " +
+        var environment = javaHome.Length == 0 ? "" : "$env:JAVA_HOME=" + Quote(javaHome) + "; $env:PATH=$env:JAVA_HOME+'\\bin;'+$env:PATH; ";
+        var script = "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); $OutputEncoding=[Console]::OutputEncoding; " + environment + "try { & " +
             Quote(executable) + " " + string.Join(' ', arguments.Select(Quote)) +
             "; if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }; exit 0 } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }";
         return Convert.ToBase64String(Encoding.Unicode.GetBytes(script));

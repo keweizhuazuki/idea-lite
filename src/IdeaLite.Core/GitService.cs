@@ -19,13 +19,48 @@ public sealed partial class GitService(string root)
 {
     public string Root { get; } = Path.GetFullPath(root);
 
+    public static string ExecutablePath
+    {
+        get
+        {
+            var file = OperatingSystem.IsWindows() ? "git.exe" : "git";
+            var directories = (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator).ToList();
+            if (OperatingSystem.IsWindows())
+            {
+                directories.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Git", "cmd"));
+                directories.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Git", "cmd"));
+            }
+            return directories.Where(directory => !string.IsNullOrWhiteSpace(directory)).Select(directory => Path.Combine(directory.Trim('"'), file)).FirstOrDefault(File.Exists) ?? file;
+        }
+    }
+
     public Task<CommandResult> RunAsync(IEnumerable<string> args, CancellationToken token = default, string? input = null) =>
-        ProcessRunner.RunAsync("git", new[] { "--no-pager", "-c", "core.quotepath=false", "-c", "color.ui=false" }.Concat(args), Root, input, token, 120);
+        ProcessRunner.RunAsync(ExecutablePath, new[] { "--no-pager", "-c", "core.quotepath=false", "-c", "color.ui=false" }.Concat(args), Root, input, token, 120);
+
+    public static string? GitBashExecutablePath
+    {
+        get
+        {
+            if (!OperatingSystem.IsWindows()) return null;
+            var roots = new List<string>();
+            if (Path.IsPathFullyQualified(ExecutablePath))
+            {
+                var parent = Path.GetDirectoryName(ExecutablePath);
+                for (int level = 0; level < 4 && parent != null; level++, parent = Path.GetDirectoryName(parent)) roots.Add(parent);
+            }
+            roots.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Git"));
+            roots.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Git"));
+            return roots.Select(root => Path.Combine(root, "git-bash.exe")).FirstOrDefault(File.Exists);
+        }
+    }
 
     public static async Task<string?> FindRootAsync(string path, CancellationToken token = default)
     {
-        var result = await ProcessRunner.RunAsync("git", ["rev-parse", "--show-toplevel"], path, cancellationToken: token);
-        return result.ExitCode == 0 ? result.Output.Trim() : null;
+        var result = await ProcessRunner.RunAsync(ExecutablePath, ["rev-parse", "--show-toplevel"], path, cancellationToken: token);
+        // Git for Windows emits forward slashes; shell dialogs require a native absolute path.
+        if (result.ExitCode == 0) return Path.GetFullPath(result.Output.Trim());
+        if (result.Combined.Contains("not a git repository", StringComparison.OrdinalIgnoreCase)) return null;
+        throw new InvalidOperationException("Git 无法读取此项目：" + result.Combined.Trim());
     }
 
     public async Task<GitStatus> StatusAsync(CancellationToken token = default) =>
