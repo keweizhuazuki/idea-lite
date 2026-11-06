@@ -94,7 +94,7 @@ public partial class MainWindow
         SelectAllChanges.IsChecked = count == 0 ? false : count == eligible.Length ? true : null;
         UiText.Set(SelectionSummary, "Text", $"已选择 {count} / {eligible.Length} 个文件");
         bool enabled = count > 0 || AmendCheck.IsChecked == true;
-        CommitSelectedButton.IsEnabled = CommitPushButton.IsEnabled = enabled;
+        CommitSelectedButton.IsEnabled = CommitPushButton.IsEnabled = enabled && _aiGeneration == null;
     }
     private void SelectAllChangesClick(object sender, RoutedEventArgs e)
     {

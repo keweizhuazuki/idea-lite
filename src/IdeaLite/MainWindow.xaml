@@ -76,7 +76,13 @@
                 </ListBox><TextBlock x:Name="GitSummary" Text="{ui:Tr '打开 Git 仓库'}" Foreground="{StaticResource Muted}" HorizontalAlignment="Center" IsHitTestVisible="False"/></Grid>
                 <GridSplitter Grid.Row="4" ResizeDirection="Rows" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="Transparent"/>
                 <Grid Grid.Row="5"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition/></Grid.RowDefinitions>
-                  <CheckBox x:Name="AmendCheck" Click="AmendChanged" Content="{ui:Tr '修改上一次提交 (Amend)'}" Margin="10,5,0,5"/>
+                  <DockPanel>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,6,0">
+                      <Button x:Name="AiGenerateButton" Style="{StaticResource ToolButton}" Click="GenerateCommitClick" ToolTip="{ui:Tr 'AI 生成提交说明'}" AutomationProperties.Name="{ui:Tr 'AI 生成提交说明'}"><ui:IdeIcon x:Name="AiGenerateIcon" Kind="Sparkles" Foreground="{StaticResource Accent}"/></Button>
+                      <Button Style="{StaticResource ToolButton}" Click="AiSettingsClick" ToolTip="{ui:Tr 'AI 提交设置'}" AutomationProperties.Name="{ui:Tr 'AI 提交设置'}"><ui:IdeIcon Kind="Settings" Width="15" Height="15"/></Button>
+                    </StackPanel>
+                    <CheckBox x:Name="AmendCheck" Click="AmendChanged" Content="{ui:Tr '修改上一次提交 (Amend)'}" Margin="10,5,0,5"/>
+                  </DockPanel>
                   <TextBox Grid.Row="1" x:Name="CommitMessage" Margin="8,2" TextWrapping="Wrap" AcceptsReturn="True" ToolTip="{ui:Tr '提交说明'}" AutomationProperties.Name="{ui:Tr '提交说明'}" VerticalScrollBarVisibility="Auto"/>
                   <TextBlock Grid.Row="1" Text="{ui:Tr '提交说明'}" Margin="18,9" VerticalAlignment="Top" Style="{StaticResource FilterHint}" Tag="{Binding Text, ElementName=CommitMessage}"/>
                 </Grid>

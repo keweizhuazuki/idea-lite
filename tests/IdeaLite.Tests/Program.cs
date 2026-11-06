@@ -481,6 +481,7 @@ await Test("Checked-file commit handles renames and empty selection without cons
     Equal("before.txt", files.Single().OldPath);
 });
 
+await AiCommitChecks.RunAsync(Test, Repository);
 
 Console.WriteLine($"\n{passed} passed, {failed} failed.");
 if (failed == 0 && !args.Contains("--keep"))

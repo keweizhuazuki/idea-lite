@@ -25,6 +25,10 @@ internal static class Program
         {
             EditorVisualChecks.Render(args[1], Pump); app.Shutdown(); return 0;
         }
+        if (args.Length == 2 && args[0] == "--render-ai-settings")
+        {
+            AiUiChecks.RenderSettings(args[1], Pump); app.Shutdown(); return 0;
+        }
         if (args.Length == 3 && args[0] == "--verify-project")
         {
             Environment.SetEnvironmentVariable("PATH", Environment.SystemDirectory);
@@ -49,6 +53,7 @@ internal static class Program
             finally { UiText.Current.Language = "en"; }
         }
         EditorVisualChecks.Run(Check, Pump);
+        AiUiChecks.Run(Check, Pump);
         Check("Translation templates preserve placeholders and user data in both languages", () =>
         {
             using var stream = typeof(UiText).Assembly.GetManifestResourceStream("IdeaLite.Strings.en.json")!;

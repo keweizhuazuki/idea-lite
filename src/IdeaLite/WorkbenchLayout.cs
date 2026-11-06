@@ -13,6 +13,11 @@ public sealed class WorkbenchLayout
     public BottomTool Bottom { get; set; }
     public bool Maven { get; set; }
     public string Language { get; set; } = "en";
+    public AiProvider CommitAiProvider { get; set; } = AiProvider.OpenAI;
+    public string CommitAiLanguage { get; set; } = "en";
+    public string CommitAiPrompt { get; set; } = AiCommitService.DefaultPrompt;
+    public string OpenAiCommitModel { get; set; } = AiCommitService.DefaultModel(AiProvider.OpenAI);
+    public string DeepSeekCommitModel { get; set; } = AiCommitService.DefaultModel(AiProvider.DeepSeek);
     public bool BottomCommit { get; set; }
     public double LeftWidth { get; set; } = 360;
     public double RightWidth { get; set; } = 250;
@@ -45,6 +50,11 @@ public sealed class WorkbenchLayout
             var layout = JsonSerializer.Deserialize<WorkbenchLayout>(File.ReadAllText(file.FullName)) ?? new();
             layout.Recent ??= [];
             layout.Language = layout.Language?.StartsWith("zh", StringComparison.OrdinalIgnoreCase) == true ? "zh-CN" : "en";
+            if (!Enum.IsDefined(layout.CommitAiProvider)) layout.CommitAiProvider = AiProvider.OpenAI;
+            layout.CommitAiLanguage = layout.CommitAiLanguage == "zh-CN" ? "zh-CN" : "en";
+            if (string.IsNullOrWhiteSpace(layout.CommitAiPrompt)) layout.CommitAiPrompt = AiCommitService.DefaultPrompt;
+            if (string.IsNullOrWhiteSpace(layout.OpenAiCommitModel)) layout.OpenAiCommitModel = AiCommitService.DefaultModel(AiProvider.OpenAI);
+            if (string.IsNullOrWhiteSpace(layout.DeepSeekCommitModel)) layout.DeepSeekCommitModel = AiCommitService.DefaultModel(AiProvider.DeepSeek);
             layout.MavenExecutable ??= ""; layout.MavenSettings ??= ""; layout.MavenRepository ??= ""; layout.JavaHome ??= "";
             if (string.IsNullOrWhiteSpace(layout.MavenGoals)) layout.MavenGoals = "test";
             layout.MavenGoalsByProject = new(layout.MavenGoalsByProject ?? [], StringComparer.OrdinalIgnoreCase);

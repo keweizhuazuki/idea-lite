@@ -327,6 +327,7 @@ public partial class MainWindow
     {
         var menu = PopupMenu(SettingsButton);
         menu.Items.Add(LanguageMenu());
+        MenuAction(menu, "AI 提交设置…", () => { ShowAiCommitSettings(); return Task.CompletedTask; });
         MenuAction(menu, "构建工具与环境…", () => { BuildSettingsClick(); return Task.CompletedTask; });
         MenuAction(menu, _layout.BottomCommit ? "提交窗口位置：移到左侧" : "提交窗口位置：移到底部 Git", () => { ChangeCommitLocation(); return Task.CompletedTask; });
         MenuAction(menu, "隐藏或恢复工具窗口", () => { ToggleFocusMode(); return Task.CompletedTask; }, "Ctrl+Shift+F12");

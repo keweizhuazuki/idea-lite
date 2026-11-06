@@ -52,8 +52,9 @@ public partial class MainWindow : Window
         public bool Saving { get; set; }
     }
 
-    public MainWindow(string? initialRoot)
+    public MainWindow(string? initialRoot, AiCommitService? aiCommitService = null, AiCredentials? aiCredentials = null)
     {
+        _aiCommitService = aiCommitService ?? new(); _aiCredentials = aiCredentials ?? new();
         _initialRoot = initialRoot;
         InitializeComponent();
         ActiveEditor = Editor;
@@ -77,7 +78,7 @@ public partial class MainWindow : Window
         InitializeWorkbench();
         _layout.Language = UiText.Current.Language;
         UiText.Current.PropertyChanged += LanguageChanged;
-        Closed += (_, _) => UiText.Current.PropertyChanged -= LanguageChanged;
+        Closed += (_, _) => { UiText.Current.PropertyChanged -= LanguageChanged; _aiGeneration?.Cancel(); };
         _outputTimer.Tick += (_, _) => FlushBuildOutput();
 
         _memoryTimer.Tick += (_, _) => UpdateMemory(); _memoryTimer.Start(); UpdateMemory();
@@ -108,6 +109,7 @@ public partial class MainWindow : Window
     {
         if (_commandBusy) { SetStatus("请等待正在运行的命令结束，或先停止命令。"); return; }
         if (!ConfirmCloseAll()) return;
+        _aiGeneration?.Cancel();
         _workspaceLoad?.Cancel(); _workspaceLoad?.Dispose(); _workspaceLoad = new();
         ++_openRequest;
         ResetReviewState();
@@ -649,6 +651,7 @@ public partial class MainWindow : Window
     private async Task<bool> CommitStagedAsync()
     {
         if (_git == null || _commandBusy) return false;
+        _aiGeneration?.Cancel();
         bool amend = AmendCheck.IsChecked == true;
         if (amend && !Dialogs.Confirm(this, "用勾选文件的内容修改上一次提交？这会改写该提交的 ID。")) return false;
         await GitOperationAsync("提交", async git =>
