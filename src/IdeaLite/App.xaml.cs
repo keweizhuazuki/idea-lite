@@ -8,9 +8,10 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        UiText.Current.Language = WorkbenchLayout.Load().Language;
         DispatcherUnhandledException += (_, args) =>
         {
-            MessageBox.Show(args.Exception.Message, "Idea Lite", MessageBoxButton.OK, MessageBoxImage.Error);
+            Dialogs.Error(MainWindow, args.Exception);
             args.Handled = true;
         };
         var args = e.Args;

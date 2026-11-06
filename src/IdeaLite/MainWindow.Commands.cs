@@ -9,6 +9,7 @@ namespace IdeaLite;
 
 public partial class MainWindow
 {
+    private sealed record BranchChoice(string Name, string Upstream, bool Current, string Group, GitRef Reference);
     private void GitMenuClick(object sender, RoutedEventArgs e)
     {
         var menu = PopupMenu(sender as Button ?? BranchButton);
@@ -46,7 +47,7 @@ public partial class MainWindow
         menu.Items.Add(new Separator());
         Add("查看远程仓库", async () => await RunGitCommandAsync(["remote", "-v"]));
         Add("完整 Git 命令…", async () => await AdvancedGitAsync());
-        Add("在终端中打开项目", () => { OpenTerminal(); return Task.CompletedTask; });
+        Add("在 Git Bash 中打开项目", () => { OpenTerminal(); return Task.CompletedTask; });
         Add("初始化当前项目 Git 仓库…", async () =>
         {
             if (_workspace == null || _git != null) return;
@@ -58,7 +59,7 @@ public partial class MainWindow
         menu.IsOpen = true;
         void Add(string header, Func<Task> action)
         {
-            var item = new MenuItem { Header = header };
+            var item = new MenuItem { Header = header }.Localize("Header");
             item.Click += async (_, _) => await Guard(action); menu.Items.Add(item);
         }
     }
@@ -73,7 +74,9 @@ public partial class MainWindow
             GitMenuClick(BranchButton, new RoutedEventArgs());
             return;
         }
-        var refs = await git.ReferencesAsync();
+        var refsTask = git.ReferencesAsync(); var recentTask = git.RecentBranchesAsync();
+        await Task.WhenAll(refsTask, recentTask);
+        var refs = await refsTask; var recent = await recentTask;
         if (git != _git) return;
         var popup = new System.Windows.Controls.Primitives.Popup
         {
@@ -83,37 +86,63 @@ public partial class MainWindow
             AllowsTransparency = true,
             VerticalOffset = 3
         };
-        var panel = new DockPanel { Margin = new Thickness(7) };
-        var search = new TextBox { ToolTip = "搜索分支或标签", Margin = new Thickness(2, 2, 2, 5) };
+        var panel = new DockPanel { Margin = new Thickness(8) };
+        var search = new TextBox { ToolTip = "搜索分支或标签", Margin = new Thickness(3, 3, 3, 8), Style = (Style)FindResource("SearchField") }.Localize("ToolTip");
         System.Windows.Automation.AutomationProperties.SetName(search, "搜索分支或标签");
         DockPanel.SetDock(search, Dock.Top); panel.Children.Add(search);
-        var actions = new StackPanel { Orientation = Orientation.Horizontal };
-        var create = new Button { Content = "新建分支…", Style = (Style)FindResource("FlatButton") };
-        var checkout = new Button { Content = "签出", Style = (Style)FindResource("Primary") };
-        actions.Children.Add(create); actions.Children.Add(checkout);
-        DockPanel.SetDock(actions, Dock.Bottom); panel.Children.Add(actions);
-        var list = new ListBox { ItemTemplate = (DataTemplate)FindResource("BranchRow") };
+        var actions = new StackPanel();
+        void Action(string text, string icon, string shortcut, Func<Task> run)
+        {
+            var row = new Grid(); row.ColumnDefinitions.Add(new() { Width = new GridLength(24) }); row.ColumnDefinitions.Add(new()); row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+            row.Children.Add(new IdeIcon { Kind = icon, Width = 15, Height = 15 });
+            var title = new TextBlock { Text = text }.Localize("Text"); Grid.SetColumn(title, 1); row.Children.Add(title);
+            var key = new TextBlock { Text = shortcut, Foreground = (System.Windows.Media.Brush)FindResource("Muted"), FontSize = 11 }; Grid.SetColumn(key, 2); row.Children.Add(key);
+            var button = new Button { Content = row, HorizontalContentAlignment = HorizontalAlignment.Stretch, Style = (Style)FindResource("FlatButton"), Padding = new Thickness(8, 5, 8, 5) };
+            button.Click += async (_, _) => { popup.IsOpen = false; await Guard(run); };
+            actions.Children.Add(button);
+        }
+        Action("更新项目…", "Pull", "Ctrl+T", () => RunGitCommandAsync(["pull", "--ff-only"]));
+        Action("提交…", "Commit", "Ctrl+K", () => ActivateCommitAsync(false));
+        Action("推送…", "Push", "Ctrl+Shift+K", PushWithPreviewAsync);
+        actions.Children.Add(new Separator());
+        Action("新建分支…", "Plus", "Ctrl+Alt+N", CreateBranchAsync);
+        Action("签出标签或提交…", "Tag", "", async () =>
+        {
+            var revision = Dialogs.Prompt(this, "签出标签或提交", "输入标签或提交 ID（分离 HEAD）");
+            if (!string.IsNullOrWhiteSpace(revision)) await RunGitCommandAsync(["switch", "--detach", "--", revision]);
+        });
+        actions.Children.Add(new Separator());
+        DockPanel.SetDock(actions, Dock.Top); panel.Children.Add(actions);
+        var list = new ListBox { ItemTemplate = (DataTemplate)FindResource("BranchRow"), ItemContainerStyle = (Style)FindResource("CompactRow") };
+        list.GroupStyle.Add(new GroupStyle { ContainerStyle = (Style)FindResource("BranchGroupItem") });
         panel.Children.Add(list);
         var border = new Border
         {
-            Width = 350,
-            Height = 365,
+            Width = 390,
+            Height = 490,
             Background = (System.Windows.Media.Brush)FindResource("Panel"),
             BorderBrush = (System.Windows.Media.Brush)FindResource("Stroke"),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(5),
+            CornerRadius = new CornerRadius(9),
             Child = panel
         };
         popup.Child = border;
         void Filter()
         {
-            list.ItemsSource = refs.Where(r => r.Name.Contains(search.Text.Trim(), StringComparison.OrdinalIgnoreCase))
-                .OrderByDescending(r => r.Current).Take(500).ToList();
+            var choices = recent.Select(name => refs.FirstOrDefault(reference => reference.Group == "本地" && reference.Name == name)).OfType<GitRef>()
+                .Select(reference => new BranchChoice(reference.Name, reference.Upstream, reference.Current, "最近", reference))
+                .Concat(refs.OrderBy(reference => reference.Group == "本地" ? 0 : reference.Group == "远程" ? 1 : 2).ThenByDescending(reference => reference.Current)
+                    .Select(reference => new BranchChoice(reference.Name, reference.Upstream, reference.Current, reference.Group, reference)))
+                .Where(choice => choice.Name.Contains(search.Text.Trim(), StringComparison.OrdinalIgnoreCase)).Take(500).ToList();
+            var view = new System.Windows.Data.ListCollectionView(choices);
+            view.GroupDescriptions.Add(new System.Windows.Data.PropertyGroupDescription(nameof(BranchChoice.Group)));
+            list.ItemsSource = view;
             list.SelectedIndex = list.Items.Count > 0 ? 0 : -1;
         }
         async Task Checkout()
         {
-            if (list.SelectedItem is not GitRef selected) return;
+            if (list.SelectedItem is not BranchChoice choice) return;
+            var selected = choice.Reference;
             popup.IsOpen = false;
             if (selected.Current || git != _git) return;
             string[] args = selected.Group switch
@@ -127,21 +156,30 @@ public partial class MainWindow
         search.TextChanged += (_, _) => Filter();
         panel.PreviewKeyDown += async (_, e) =>
         {
+            Func<Task>? action = (System.Windows.Input.Keyboard.Modifiers, e.Key) switch
+            {
+                (System.Windows.Input.ModifierKeys.Control, System.Windows.Input.Key.T) => () => RunGitCommandAsync(["pull", "--ff-only"]),
+                (System.Windows.Input.ModifierKeys.Control, System.Windows.Input.Key.K) => () => ActivateCommitAsync(false),
+                (System.Windows.Input.ModifierKeys.Control | System.Windows.Input.ModifierKeys.Shift, System.Windows.Input.Key.K) => PushWithPreviewAsync,
+                (System.Windows.Input.ModifierKeys.Control | System.Windows.Input.ModifierKeys.Alt, System.Windows.Input.Key.N) => CreateBranchAsync,
+                _ => null
+            };
+            if (action != null) { e.Handled = true; popup.IsOpen = false; await Guard(action); return; }
             if (e.Key == System.Windows.Input.Key.Escape) { e.Handled = true; popup.IsOpen = false; }
-            else if (e.Key == System.Windows.Input.Key.Enter) { e.Handled = true; await Checkout(); }
+            else if (e.Key == System.Windows.Input.Key.Enter && (list.IsKeyboardFocusWithin || search.IsKeyboardFocusWithin)) { e.Handled = true; await Checkout(); }
             else if (e.Key == System.Windows.Input.Key.Down && search.IsKeyboardFocusWithin) { e.Handled = true; list.Focus(); }
         };
-        create.Click += async (_, _) =>
-        {
-            popup.IsOpen = false;
-            var name = Dialogs.Prompt(this, "新建分支", "分支名称");
-            if (!string.IsNullOrWhiteSpace(name)) await Guard(() => RunGitCommandAsync(["switch", "-c", name]));
-        };
-        checkout.Click += async (_, _) => await Checkout();
-        list.MouseDoubleClick += async (_, _) => await Checkout();
+        list.MouseDoubleClick += async (_, e) => { if (ItemAt<ListBoxItem>(list, e.OriginalSource) != null) await Checkout(); };
         Filter();
         popup.Opened += (_, _) => search.Focus();
         popup.IsOpen = true;
+    }
+
+    private async Task CreateBranchAsync()
+    {
+        if (_git == null || _commandBusy) return;
+        var name = Dialogs.Prompt(this, "新建分支", "分支名称");
+        if (!string.IsNullOrWhiteSpace(name)) await RunGitCommandAsync(["switch", "-c", name]);
     }
 
     private async Task PushWithPreviewAsync()
@@ -216,52 +254,42 @@ public partial class MainWindow
         if (destructive && !Dialogs.Confirm(this, "以下命令可能丢弃改动、删除引用或重写历史。请确认参数：\n\ngit " + string.Join(' ', arguments))) return;
         _commandBusy = true; _command?.Dispose(); _command = new();
         var label = "git " + string.Join(' ', arguments);
-        ShowOutput(label, "运行中…\n使用系统 Git 与现有凭据。可点击停止取消。");
+        ShowOutput(label, "运行中…\n使用系统 Git 与现有凭据。可点击停止取消。", true);
         SetStatus(label + "…");
         try
         {
             var result = await _git.RunAsync(arguments, _command.Token);
-            ShowOutput(label, result.Combined.Length == 0 ? $"完成（退出码 {result.ExitCode}）" : result.Combined);
+            ShowOutput(label, result.Combined.Length == 0 ? $"完成（退出码 {result.ExitCode}）" : result.Combined, result.Combined.Length == 0);
             await RefreshWorkspaceAsync();
             SetStatus(label + (result.ExitCode == 0 ? " · 完成" : $" · 退出码 {result.ExitCode}，请查看输出"));
             if (result.ExitCode != 0 && result.Combined.Contains("Authentication", StringComparison.OrdinalIgnoreCase)) SetStatus("Git 认证失败，请在项目终端中登录后重试。应用不保存密码。");
         }
-        catch (OperationCanceledException) { ShowOutput(label, "命令已停止。请刷新并检查仓库状态。"); }
-        finally { _commandBusy = false; }
+        catch (OperationCanceledException) { ShowOutput(label, "命令已停止。请刷新并检查仓库状态。", true); }
+        finally { _commandBusy = false; CancelBuildButton.IsEnabled = false; }
     }
 
     private void OpenTerminal()
     {
         if (_workspace == null) return;
-        var script = "Set-Location -LiteralPath '" + _workspace.Root.Replace("'", "''") + "'";
-        var info = new ProcessStartInfo("powershell.exe") { UseShellExecute = true, WorkingDirectory = _workspace.Root };
-        info.ArgumentList.Add("-NoLogo"); info.ArgumentList.Add("-NoProfile"); info.ArgumentList.Add("-NoExit"); info.ArgumentList.Add("-EncodedCommand");
-        info.ArgumentList.Add(Convert.ToBase64String(Encoding.Unicode.GetBytes(script)));
-        Process.Start(info);
+        try { Process.Start(ProjectTerminalStartInfo(_workspace.Root)); }
+        catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception) { Dialogs.Error(this, error); }
+    }
+
+    internal static ProcessStartInfo ProjectTerminalStartInfo(string root)
+    {
+        var executable = GitService.GitBashExecutablePath ?? throw new InvalidOperationException("未找到 Git Bash，请安装 Git for Windows 后重试。");
+        var info = new ProcessStartInfo(executable) { UseShellExecute = true, WorkingDirectory = root };
+        info.ArgumentList.Add("--cd=" + root); return info;
     }
 
     private async void MavenClick(object sender, RoutedEventArgs e) => await Guard(async () =>
     {
         if (_workspace == null || _commandBusy) return;
-        var module = MavenList.SelectedItem as MavenModule ?? _workspace.Maven.FirstOrDefault();
+        var selection = (MavenList.SelectedItem as TreeViewItem)?.Tag;
+        var module = selection is MavenTask task ? task.Module : selection as MavenModule ?? _workspace.Maven.FirstOrDefault();
         if (module == null) { SetStatus("未检测到 pom.xml。"); return; }
-        var value = Dialogs.Prompt(this, "运行 Maven 任务", "任务会启动项目构建、执行插件或下载依赖。请确认你信任此项目。\n例如：test / -DskipTests package / spring-boot:run\n优先使用项目 mvnw.cmd，其次使用 PATH 中的 mvn.cmd。", "test");
+        var value = Dialogs.Prompt(this, "运行 Maven 任务", "Maven 参数，例如：test / -DskipTests package / spring-boot:run\n优先使用项目 mvnw.cmd，其次使用 PATH 中的 mvn.cmd。", selection is MavenTask selected ? selected.Goal : "test");
         if (string.IsNullOrWhiteSpace(value)) return;
-        if (!await CheckUnsavedBuffersAsync()) return;
-        var arguments = ProcessRunner.SplitArguments(value);
-        var rootWrapper = Path.Combine(_workspace.Root, "mvnw.cmd");
-        var directory = Path.GetDirectoryName(FileService.SafePath(_workspace.Root, module.Path))!;
-        var localWrapper = Path.Combine(directory, "mvnw.cmd");
-        var executable = File.Exists(localWrapper) ? localWrapper : File.Exists(rootWrapper) ? rootWrapper : "mvn.cmd";
-        var encodedScript = ProcessRunner.PowerShellInvocation(executable, arguments);
-        _commandBusy = true; _command?.Dispose(); _command = new();
-        ShowOutput("Maven · " + value, "构建中… 输出将在进程结束后显示，可点击停止取消。运行上限 20 分钟。");
-        try
-        {
-            var result = await ProcessRunner.RunAsync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encodedScript], directory, cancellationToken: _command.Token, timeoutSeconds: 1200);
-            ShowOutput("Maven · " + value, result.Combined); SetStatus($"Maven 退出码 {result.ExitCode}");
-        }
-        catch (OperationCanceledException) { ShowOutput("Maven", "构建已停止。"); }
-        finally { _commandBusy = false; }
+        await RunMavenAsync(module, value);
     });
 }

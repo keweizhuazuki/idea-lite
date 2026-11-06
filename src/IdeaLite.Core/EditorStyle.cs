@@ -9,8 +9,10 @@ public sealed record EditorStyle(bool UseTabs, int IndentSize, string NewLine, b
     public static EditorStyle Load(string path, string text)
     {
         var lines = text.Replace("\r\n", "\n").Split('\n');
-        var indents = lines.Where(l => l.Length > 0 && l[0] == ' ').Select(l => l.TakeWhile(c => c == ' ').Count()).Where(n => n > 0 && n <= 16).ToArray();
-        var tabs = lines.Count(l => l.StartsWith('\t'));
+        // Javadoc 的星号通常比代码缩进多一个空格，不能用来推断 Java 缩进宽度。
+        var indentationLines = Path.GetExtension(path).Equals(".java", StringComparison.OrdinalIgnoreCase) ? lines.Where(line => !line.TrimStart().StartsWith('*')) : lines;
+        var indents = indentationLines.Where(l => l.Length > 0 && l[0] == ' ').Select(l => l.TakeWhile(c => c == ' ').Count()).Where(n => n > 0 && n <= 16).ToArray();
+        var tabs = indentationLines.Count(l => l.StartsWith('\t'));
         var size = indents.Length == 0 ? 4 : indents.Min();
         var style = new EditorStyle(tabs > indents.Length, Math.Clamp(size, 1, 8), text.Contains("\r\n") ? "\r\n" : "\n");
         var configs = new List<string>();

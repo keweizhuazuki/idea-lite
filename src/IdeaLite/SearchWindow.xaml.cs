@@ -26,7 +26,7 @@ public partial class SearchWindow : Window
         foreach (var category in Categories)
         {
             if (choices != null && category.Id != "symbols") continue;
-            var button = new Button { Content = category.Label, Uid = category.Id, Style = (Style)FindResource("DockTab") };
+            var button = new Button { Content = category.Label, Uid = category.Id, Style = (Style)FindResource("DockTab") }.Localize("Content");
             button.Click += async (_, _) => await SelectScopeAsync(category.Id);
             Scopes.Children.Add(button);
         }
@@ -51,7 +51,7 @@ public partial class SearchWindow : Window
         var token = _search.Token;
         string query = Query.Text, mode = _mode;
         Results.ItemsSource = null;
-        SearchState.Text = "正在搜索…";
+        UiText.Set(SearchState, "Text", "正在搜索…");
         try
         {
             IReadOnlyList<SearchHit> results;
@@ -69,16 +69,16 @@ public partial class SearchWindow : Window
             }
             token.ThrowIfCancellationRequested();
             Results.ItemsSource = results; Results.SelectedIndex = results.Count > 0 ? 0 : -1;
-            SearchState.Text = results.Count == 0 ? (query.Length == 0 && mode == "text" ? "输入要查找的文本" : "无匹配结果") : "";
+            UiText.Set(SearchState, "Text", results.Count == 0 ? (query.Length == 0 && mode == "text" ? "输入要查找的文本" : "无匹配结果") : "");
             UpdateFooter();
         }
         catch (OperationCanceledException) { }
-        catch (Exception ex) { if (!token.IsCancellationRequested) SearchState.Text = ex.Message; }
+        catch (Exception ex) { if (!token.IsCancellationRequested) UiText.Set(SearchState, "Text", ex.Message); }
     }
     private void UpdateFooter()
     {
-        SearchFooter.Text = Results.SelectedItem is SearchHit hit
-            ? $"{Results.Items.Count} 个结果    {hit.Kind}    {hit.Description}" : "↑↓ 选择    Enter 打开    Esc 关闭";
+        UiText.Set(SearchFooter, "Text", Results.SelectedItem is SearchHit hit
+            ? $"{Results.Items.Count} 个结果    {UiText.Current.Translate(hit.Kind)}    {(hit.Description == hit.Kind ? UiText.Current.Translate(hit.Description) : hit.Description)}" : "↑↓ 选择    Enter 打开    Esc 关闭");
     }
     private async void SearchKeyDown(object sender, KeyEventArgs e)
     {

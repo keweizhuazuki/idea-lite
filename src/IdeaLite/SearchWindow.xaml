@@ -1,12 +1,12 @@
 <Window x:Class="IdeaLite.SearchWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:ui="clr-namespace:IdeaLite"
-    Title="随处搜索" Style="{StaticResource {x:Type Window}}" WindowStyle="None" ResizeMode="NoResize" ShowInTaskbar="False"
+    Title="{ui:Tr '随处搜索'}" Style="{StaticResource {x:Type Window}}" WindowStyle="None" ResizeMode="NoResize" ShowInTaskbar="False"
     WindowStartupLocation="CenterOwner" SizeToContent="Manual" Width="715" Height="442" PreviewKeyDown="SearchKeyDown">
   <Border BorderBrush="#52555B" BorderThickness="1" Background="{StaticResource Panel}">
     <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="43"/><RowDefinition Height="Auto"/><RowDefinition/><RowDefinition Height="27"/></Grid.RowDefinitions>
       <StackPanel x:Name="Scopes" Orientation="Horizontal" Margin="7,1"/>
-      <DockPanel Grid.Row="1" Background="{StaticResource Bg}"><ui:IdeIcon Kind="Search" Margin="12,0,4,0" Foreground="{StaticResource Muted}"/><TextBox x:Name="Query" BorderThickness="0" Background="Transparent" FontSize="17" VerticalContentAlignment="Center" TextChanged="QueryChanged" AutomationProperties.Name="搜索内容"/></DockPanel>
-      <StackPanel x:Name="TextOptions" Grid.Row="2" Orientation="Horizontal" Margin="7,0" Visibility="Collapsed"><CheckBox x:Name="MatchCase" Content="区分大小写" Click="OptionClick"/><CheckBox x:Name="UseRegex" Content="正则表达式" Click="OptionClick"/></StackPanel>
+      <DockPanel Grid.Row="1" Background="{StaticResource Bg}"><ui:IdeIcon Kind="Search" Margin="12,0,4,0" Foreground="{StaticResource Muted}"/><TextBox x:Name="Query" BorderThickness="0" Background="Transparent" FontSize="17" VerticalContentAlignment="Center" TextChanged="QueryChanged" AutomationProperties.Name="{ui:Tr '搜索内容'}"/></DockPanel>
+      <StackPanel x:Name="TextOptions" Grid.Row="2" Orientation="Horizontal" Margin="7,0" Visibility="Collapsed"><CheckBox x:Name="MatchCase" Content="{ui:Tr '区分大小写'}" Click="OptionClick"/><CheckBox x:Name="UseRegex" Content="{ui:Tr '正则表达式'}" Click="OptionClick"/></StackPanel>
       <Grid Grid.Row="3" Background="{StaticResource Bg}">
         <ListBox x:Name="Results" ItemContainerStyle="{StaticResource CompactRow}" MouseDoubleClick="ResultDoubleClick" SelectionChanged="ResultChanged" Margin="4,3">
           <ListBox.ItemTemplate><DataTemplate><Grid Height="25"><Grid.ColumnDefinitions><ColumnDefinition Width="24"/><ColumnDefinition Width="Auto"/><ColumnDefinition/></Grid.ColumnDefinitions>

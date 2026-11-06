@@ -5,6 +5,8 @@ using ICSharpCode.AvalonEdit;
 using ICSharpCode.AvalonEdit.Document;
 using ICSharpCode.AvalonEdit.Editing;
 using ICSharpCode.AvalonEdit.Highlighting;
+using ICSharpCode.AvalonEdit.Highlighting.Xshd;
+using System.Xml;
 using ICSharpCode.AvalonEdit.Indentation;
 using ICSharpCode.AvalonEdit.Rendering;
 using ICSharpCode.AvalonEdit.Search;
@@ -14,11 +16,33 @@ namespace IdeaLite;
 
 public static class EditorSupport
 {
+    private static readonly FontFamily CodeLineFont = CreateCodeLineFont();
+    private static FontFamily CreateCodeLineFont()
+    {
+        var directory = Path.Combine(AppContext.BaseDirectory, "Assets", "Fonts") + Path.DirectorySeparatorChar;
+        if (!Directory.Exists(directory)) return new FontFamily(new Uri("pack://application:,,,/"), "./IdeaLite;component/Assets/Fonts/#JetBrains Mono");
+        var family = new FontFamily { LineSpacing = 1.55, Baseline = 1.13 };
+        // 复合字体映射使用随程序附带的字体文件；逗号按字体列表规则转义。
+        var target = (new Uri(directory).AbsoluteUri + "#JetBrains Mono").Replace(",", ",,", StringComparison.Ordinal);
+        family.FamilyMaps.Add(new FontFamilyMap { Target = target + ", Microsoft YaHei UI, Segoe UI Emoji" });
+        return family;
+    }
+    private static readonly Lazy<IHighlightingDefinition> JavaHighlighting = new(() =>
+    {
+        using var stream = typeof(EditorSupport).Assembly.GetManifestResourceStream("IdeaLite.JavaDark.xshd")!;
+        using var reader = XmlReader.Create(stream);
+        return HighlightingLoader.Load(reader, HighlightingManager.Instance);
+    });
     public static void Configure(TextEditor editor, bool readOnly = true)
     {
-        editor.Background = new SolidColorBrush(Color.FromRgb(30, 31, 34));
+        editor.Background = new SolidColorBrush(Color.FromRgb(25, 26, 28));
         editor.Foreground = new SolidColorBrush(Color.FromRgb(188, 190, 196));
-        editor.FontFamily = new FontFamily("JetBrains Mono, Consolas"); editor.FontSize = 14;
+        editor.FontFamily = new FontFamily(new Uri("pack://application:,,,/"), "./IdeaLite;component/Assets/Fonts/#JetBrains Mono"); editor.FontSize = 14;
+        // 通过 WPF 复合字体设置行距，保持原字形尺寸与光标/滚动坐标一致。
+        editor.TextArea.TextView.SetValue(System.Windows.Controls.Control.FontFamilyProperty, CodeLineFont);
+        editor.UseLayoutRounding = true;
+        TextOptions.SetTextFormattingMode(editor, TextFormattingMode.Display);
+        TextOptions.SetTextRenderingMode(editor, TextRenderingMode.ClearType);
         editor.LineNumbersForeground = new SolidColorBrush(Color.FromRgb(89, 100, 119));
         editor.ShowLineNumbers = true; editor.IsReadOnly = readOnly;
         editor.HorizontalScrollBarVisibility = System.Windows.Controls.ScrollBarVisibility.Auto;
@@ -27,10 +51,18 @@ public static class EditorSupport
         editor.Options.EnableHyperlinks = false; editor.Options.EnableEmailHyperlinks = false;
         editor.Options.HighlightCurrentLine = !readOnly;
         editor.Options.AllowScrollBelowDocument = true;
+        editor.TextArea.TextView.CurrentLineBackground = new SolidColorBrush(Color.FromRgb(35, 36, 39));
+        editor.TextArea.TextView.CurrentLineBorder = new Pen(Brushes.Transparent, 0);
         editor.TextArea.Caret.CaretBrush = new SolidColorBrush(Color.FromRgb(218, 220, 224));
         editor.TextArea.SelectionBrush = new SolidColorBrush(Color.FromArgb(185, 48, 73, 110));
         editor.TextArea.IndentationStrategy = new BraceIndentation(editor);
+        if (!editor.TextArea.TextView.BackgroundRenderers.OfType<IndentGuides>().Any())
+        {
+            editor.TextArea.TextView.BackgroundRenderers.Add(new IndentGuides(editor));
+            editor.TextArea.Caret.PositionChanged += (_, _) => editor.TextArea.TextView.InvalidateLayer(KnownLayer.Background);
+        }
         var search = SearchPanel.Install(editor);
+        search.Localization = new SearchLocalization();
         search.MarkerBrush = new SolidColorBrush(Color.FromArgb(120, 196, 151, 53));
         search.Resources[SystemColors.WindowBrushKey] = editor.Background;
         search.Resources[SystemColors.WindowTextBrushKey] = new SolidColorBrush(Color.FromRgb(66, 78, 96));
@@ -46,12 +78,17 @@ public static class EditorSupport
     public static void Highlight(TextEditor editor, string path)
     {
         var extension = Path.GetExtension(path).ToLowerInvariant();
+        foreach (var guides in editor.TextArea.TextView.BackgroundRenderers.OfType<IndentGuides>()) guides.Enabled = extension is ".java" or ".kt" or ".cs" or ".js" or ".ts" or ".json" or ".xml";
+        if (extension == ".java") { editor.SyntaxHighlighting = JavaHighlighting.Value; return; }
         var builtin = HighlightingManager.Instance.GetDefinitionByExtension(extension);
         if (builtin != null)
         {
             var definition = builtin;
             foreach (var color in definition.NamedHighlightingColors)
             {
+                // Markdown remains editable source: headings must not change the line height or font size.
+                color.FontSize = null;
+                if (extension != ".md") color.FontWeight = null;
                 var name = color.Name.ToLowerInvariant();
                 var hex = name.Contains("comment") ? "#7A7E85" : name.Contains("string") || name.Contains("char") ? "#6AAB73" :
                     name.Contains("number") || name.Contains("digit") ? "#2AACB8" : name.Contains("keyword") || name.Contains("modifier") || name.Contains("type") ? "#CF8E6D" : "#A7C4E4";
@@ -120,6 +157,17 @@ public sealed class PatchColorizer : DocumentColorizingTransformer
     {
         var text = CurrentContext.Document.GetText(line);
         var color = text.StartsWith('+') ? "#7DE2B2" : text.StartsWith('-') ? "#E5A1AD" : text.StartsWith("@@") ? "#BEA6EF" : null;
+        if (color != null) ChangeLinePart(line.Offset, line.EndOffset, element => element.TextRunProperties.SetForegroundBrush(new SolidColorBrush((Color)ColorConverter.ConvertFromString(color))));
+    }
+}
+
+public sealed class BuildOutputColorizer : DocumentColorizingTransformer
+{
+    protected override void ColorizeLine(DocumentLine line)
+    {
+        var text = CurrentContext.Document.GetText(line);
+        var color = text.StartsWith("[ERROR]", StringComparison.Ordinal) || text.Contains("BUILD FAILURE", StringComparison.Ordinal) ? "#F77669" :
+            text.StartsWith("[WARNING]", StringComparison.Ordinal) ? "#E5C07B" : text.Contains("BUILD SUCCESS", StringComparison.Ordinal) ? "#C3E887" : null;
         if (color != null) ChangeLinePart(line.Offset, line.EndOffset, element => element.TextRunProperties.SetForegroundBrush(new SolidColorBrush((Color)ColorConverter.ConvertFromString(color))));
     }
 }

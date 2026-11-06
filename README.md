@@ -16,6 +16,8 @@ Idea Lite 就是为这个场景做的：一个 Windows 原生的代码编辑器�
 
 上图使用合成示例数据，由原生 WPF 控件离屏渲染。
 
+![Java 编辑区与项目树，使用合成示例数据](docs/images/editor-project.png)
+
 ## v0.2.0 的界面调整
 
 默认采用左侧 Commit、底部 Git 日志的布局。顶部是项目与 Git 分支选择器，编辑区使用文件与 Diff 标签，Maven 位于右侧，Spring 信息位于底部服务窗口。深色配色、工具栏、侧边工具按钮和状态栏均按熟悉的 IDEA 布局组织。
@@ -26,6 +28,12 @@ Idea Lite 就是为这个场景做的：一个 Windows 原生的代码编辑器�
 - 双击 Shift 的搜索窗口支持全部、类、文件、符号、操作、文本；分支选择器支持搜索与签出，推送前显示目标分支与提交预览。
 - 冲突使用独立三栏窗口，左侧本地版本、中间可编辑的合并结果、右侧传入版本。处理完点击“应用并暂存”。
 - 工具窗口大小和位置自动记忆。设置菜单可将 Commit 移到底部 Git，再切回左侧。
+- 本地源码版进一步调整深色圆角面板、分支菜单和提交说明区；分支列表同时显示上游引用，Markdown 源码保持统一字号。
+- Maven 面板可展开生命周期并双击运行任务；构建控制台持续显示标准输出与错误输出，提供耗时、结果、停止和跟随输出。输出每 50 毫秒分批刷新，视图保留最近约 1 MiB，避免大量日志拖慢编辑区。
+- “设置 → 构建工具与环境”支持选择 Windows / WSL Maven、Maven 可执行文件、settings.xml、本地仓库和 JAVA_HOME；环境仅传给子进程。任务参数按项目保存，顶部运行按钮或 Shift+F10 重跑当前任务，Ctrl+F9 编译项目。WSL 模式停止的是独立 Linux 进程组；构建模块和错误出现在左侧树中，双击 Java 编译错误可定位到源码行。
+- 分支菜单显示最近切换、本地、远程和标签分组，支持折叠、搜索、上游分支及常用快捷键。编辑器和控制台内置 JetBrains Mono；Git 改动状态使用 Islands Dark 的红、绿、青配色。
+- Java 编辑区区分关键字、注解、方法声明、常量、数字、字符串与注释，支持多行文本块；使用随程序附带的 JetBrains Mono 和 1.55 倍字形行距，绘制可见行缩进线并突出当前层级。Javadoc 星号行不再误导缩进检测，`.editorconfig` 的明确设置优先。项目树使用统一的 26 px 行高、18 px 层级间距，区分 Maven 模块、Java 源码根和包，保留包目录合并及刷新后的选中状态。提示框统一为深色背景；Alt+F12 在项目目录打开 Git Bash（需要 Git for Windows）。
+- 默认使用英文。右上角 EN / 中按钮，或 Settings → Language，可在 English 和简体中文之间即时切换并保存选择；切换保留当前文档、未保存编辑、光标、提交说明和工具窗口布局。界面、搜索、构建状态与确认窗口一起切换，源码、文件/分支名和原始 Git/Maven 日志保持原样。
 
 布局参考 JetBrains 的 [IDEA 界面](https://www.jetbrains.com/help/idea/guided-tour-around-the-user-interface.html)、[提交窗口](https://www.jetbrains.com/help/idea/commit-and-push-changes.html)和 [Git 日志](https://www.jetbrains.com/help/idea/log-tab.html)。图标与界面代码由本项目绘制和实现。
 
@@ -180,7 +188,13 @@ dotnet run --project tests/IdeaLite.Tests -c Release --no-build
 dotnet run --project src/IdeaLite -- 'D:\code\your-project'
 ```
 
-仓库自带 25 项行为/集成测试，覆盖真实 Git 仓库中的暂存/未暂存、首次提交、中文和带空格路径、重命名删除、合并冲突、stash、本地远程推拉，以及编码、风格、搜索、外部修改保护、进程超时、Maven 命令参数传递和按文件提交范围保护。另有 3 项无桌面交互的 WPF 回归检查，覆盖深色子菜单、复选框绑定和异步滚动同步。测试不访问外部 Git 服务，失败会保留临时现场。
+核心行为/集成测试覆盖真实 Git 仓库中的暂存/未暂存、首次提交、中文和带空格路径、重命名删除、合并冲突、stash、本地远程推拉，以及编码、风格、搜索、外部修改保护、进程超时、实时输出、Windows 原生项目路径、Maven 命令参数传递和按文件提交范围保护。自动 WPF 检查使用临时命令脚本模拟构建，不运行实际 Maven；窗口检查会短暂显示测试窗口。测试不访问外部 Git 服务，失败会保留临时现场。
+
+当前源码在安装了 Git for Windows 的 Windows 上执行 30 项核心检查，以及 14 项 WPF 检查；额外传入 `--with-wsl --keep` 执行 3 项 WSL 参数传递、进程组停止和超时检查。WPF 检查覆盖 Java 分色、字体与行距、项目树导航、提示框对比度、Git Bash 参数、构建输出与错误跳转，以及双语切换的持久化和编辑状态保护。
+
+“文件 → 打开项目”会把 Git 返回的路径规范化后传给系统文件夹选择器，避免 `D:/...` 路径触发 Windows Shell 的 `Value does not fall within the expected range`。发生其他异常时，错误窗口提供调用堆栈；设置目录内的 `last-error.log` 只保存异常类型和堆栈，不记录异常消息、命令输出或源码内容。
+
+Git 优先从 PATH 查找，再检查 Git for Windows 的常见安装目录。无法启动 Git、仓库访问失败和目录没有 Git 仓库会分别显示；应用不会通过初始化仓库或修改全局 Git 配置来掩盖识别错误。
 
 创建一个带提交历史和改动的演示仓库：
 

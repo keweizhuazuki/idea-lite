@@ -39,6 +39,7 @@ public partial class MainWindow
         _layout.Left = _left;
         _layout.Bottom = _bottom;
         _layout.Maven = _mavenOpen;
+        _layout.Language = UiText.Current.Language;
     }
 
     private void ApplyLayout()
@@ -61,7 +62,7 @@ public partial class MainWindow
         MavenPane.Visibility = Visible(right);
         BottomPane.Visibility = Visible(bottom);
         bool git = _bottom is BottomTool.Log or BottomTool.Console or BottomTool.LocalChanges;
-        BottomTitle.Text = git ? "Git" : _bottom == BottomTool.Services ? "服务" : "运行";
+        UiText.Set(BottomTitle, "Text", git ? "Git" : _bottom == BottomTool.Services ? "服务" : "构建");
         LogTab.Visibility = ConsoleTab.Visibility = Visible(git);
         LocalTab.Visibility = Visible(git && _layout.BottomCommit);
         LogPane.Visibility = Visible(_bottom == BottomTool.Log);
@@ -179,7 +180,7 @@ public partial class MainWindow
         title.Children.Add(new TextBlock { Text = name + (dirty ? " •" : ""), Margin = new Thickness(5, 0, 0, 0) });
         var openButton = new Button { Style = (Style)FindResource("FlatButton"), Content = title, Padding = new Thickness(6, 1, 2, 1) };
         openButton.Click += async (_, _) => await Guard(open);
-        var closeButton = new Button { Content = new IdeIcon { Kind = "Close", Width = 11, Height = 11 }, Style = (Style)FindResource("FlatButton"), ToolTip = "关闭标签 · Ctrl+W", Padding = new Thickness(3, 1, 3, 1) };
+        var closeButton = new Button { Content = new IdeIcon { Kind = "Close", Width = 11, Height = 11 }, Style = (Style)FindResource("FlatButton"), ToolTip = "关闭标签 · Ctrl+W", Padding = new Thickness(3, 1, 3, 1) }.Localize("ToolTip");
         closeButton.Click += async (_, _) => await Guard(close);
         row.Children.Add(openButton); row.Children.Add(closeButton); tab.Child = row;
         tab.MouseUp += async (_, e) => { if (e.ChangedButton == MouseButton.Middle) { e.Handled = true; await Guard(close); } };
@@ -189,8 +190,8 @@ public partial class MainWindow
 
     private static Brush IconBrush(string kind) => kind switch
     {
-        "Class" => Brushes.DarkSeaGreen,
-        "Project" or "Diff" or "Maven" => Brushes.CornflowerBlue,
+        "Class" => Brushes.CornflowerBlue,
+        "Project" or "Module" or "SourceRoot" or "Diff" or "Maven" => Brushes.CornflowerBlue,
         "Xml" => Brushes.BurlyWood,
         _ => Brushes.LightSlateGray
     };
@@ -205,11 +206,14 @@ public partial class MainWindow
     {
         if (_workspace == null) return;
         var expanded = new HashSet<string>(StringComparer.Ordinal);
+        var selectedPath = (FileTree.SelectedItem as TreeViewItem)?.Tag is FileNode selected ? selected.Path : null;
         void Visit(ItemsControl parent, bool restore)
         {
             foreach (var item in parent.Items.OfType<TreeViewItem>())
             {
-                if (item.Tag is not FileNode node || node.IsFile) continue;
+                if (item.Tag is not FileNode node) continue;
+                if (restore && node.Path == selectedPath) item.IsSelected = true;
+                if (node.IsFile) continue;
                 if (restore && expanded.Contains(node.Path)) item.IsExpanded = true;
                 if (!item.IsExpanded) continue;
                 if (!restore) expanded.Add(node.Path);
@@ -218,7 +222,9 @@ public partial class MainWindow
         }
         Visit(FileTree, false);
         FileTree.Items.Clear();
-        var root = new TreeViewItem { Tag = new FileNode("", false), Header = FileHeader(Path.GetFileName(_workspace.Root), "Project", _workspace.Root), IsExpanded = true };
+        var artifact = _workspace.Maven.FirstOrDefault(module => module.Path == "pom.xml")?.Artifact;
+        var rootName = Path.GetFileName(_workspace.Root) + (string.IsNullOrWhiteSpace(artifact) ? "" : " [" + artifact + "]");
+        var root = new TreeViewItem { Tag = new FileNode("", false), Header = FileHeader(rootName, "Project", _workspace.Root), IsExpanded = true, Style = (Style)FindResource("ProjectTreeItem") };
         FileTree.Items.Add(root);
         PopulateTree(root, "");
         Visit(FileTree, true);
@@ -256,6 +262,12 @@ public partial class MainWindow
     }
     private static T? ItemAt<T>(ItemsControl parent, object origin) where T : DependencyObject =>
         origin is DependencyObject node ? ItemsControl.ContainerFromElement(parent, node) as T : null;
+    private static TreeViewItem? TreeItemAt(object origin)
+    {
+        for (var node = origin as DependencyObject; node != null; node = node is Visual ? VisualTreeHelper.GetParent(node) : LogicalTreeHelper.GetParent(node))
+            if (node is TreeViewItem item) return item;
+        return null;
+    }
     private void TreeRightClick(object sender, MouseButtonEventArgs e)
     {
         if (e.OriginalSource is not DependencyObject node) return;
@@ -270,6 +282,7 @@ public partial class MainWindow
     private static void MenuAction(ItemsControl parent, string header, Func<Task> action, string shortcut = "")
     {
         var item = new MenuItem { Header = header, InputGestureText = shortcut };
+        if (!Path.IsPathFullyQualified(header)) item.Localize("Header");
         item.Click += async (_, _) => await ((MainWindow)Application.Current.MainWindow).Guard(action);
         parent.Items.Add(item);
     }
@@ -286,7 +299,7 @@ public partial class MainWindow
     private void MainMenuClick(object sender, RoutedEventArgs e)
     {
         var menu = PopupMenu((UIElement)sender);
-        MenuItem Group(string title) { var item = new MenuItem { Header = title }; menu.Items.Add(item); return item; }
+        MenuItem Group(string title) { var item = new MenuItem { Header = title }.Localize("Header"); menu.Items.Add(item); return item; }
         var file = Group("文件");
         MenuAction(file, "打开项目…", ChooseProjectAsync, "Ctrl+O");
         MenuAction(file, "保存", () => SaveAsync(), "Ctrl+S");
@@ -313,10 +326,49 @@ public partial class MainWindow
     private void ShowSettingsMenu()
     {
         var menu = PopupMenu(SettingsButton);
+        menu.Items.Add(LanguageMenu());
+        MenuAction(menu, "构建工具与环境…", () => { BuildSettingsClick(); return Task.CompletedTask; });
         MenuAction(menu, _layout.BottomCommit ? "提交窗口位置：移到左侧" : "提交窗口位置：移到底部 Git", () => { ChangeCommitLocation(); return Task.CompletedTask; });
         MenuAction(menu, "隐藏或恢复工具窗口", () => { ToggleFocusMode(); return Task.CompletedTask; }, "Ctrl+Shift+F12");
         MenuAction(menu, "快捷键", () => { HelpClick(this, new RoutedEventArgs()); return Task.CompletedTask; });
         menu.IsOpen = true;
+    }
+
+    private MenuItem LanguageMenu()
+    {
+        var menu = new MenuItem { Header = "语言" }.Localize("Header");
+        var chineseName = "简体中文";
+        foreach (var choice in new[] { (Code: "en", Name: "English"), (Code: "zh-CN", Name: chineseName) })
+        {
+            var item = new MenuItem { Header = choice.Name, IsCheckable = true, IsChecked = UiText.Current.Language == choice.Code };
+            item.Click += (_, _) => ChangeLanguage(choice.Code);
+            menu.Items.Add(item);
+        }
+        return menu;
+    }
+    private void LanguageClick(object sender, RoutedEventArgs e)
+    {
+        var menu = PopupMenu(LanguageButton);
+        var languages = LanguageMenu();
+        while (languages.Items.Count > 0)
+        {
+            var item = languages.Items[0]; languages.Items.RemoveAt(0);
+            menu.Items.Add(item);
+        }
+        menu.IsOpen = true;
+    }
+    private void ChangeLanguage(string language)
+    {
+        _layout.Language = language; _layout.Save();
+        UiText.Current.Language = language;
+    }
+    private void LanguageChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(UiText.Language)) return;
+        _layout.Language = UiText.Current.Language;
+        if (LogRefs.Items.Count > 0) RenderRefs();
+        RebuildTabs();
+        if (_outputMessage != null) OutputEditor.Text = UiText.Current.Translate(_outputMessage);
     }
     private void ChangeActionsClick(object sender, RoutedEventArgs e)
     {

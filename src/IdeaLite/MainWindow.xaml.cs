@@ -28,6 +28,7 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _diffLoad;
     private CancellationTokenSource? _command;
     private bool _commandBusy, _loadingDocument, _refreshingGit;
+    private string? _outputMessage;
     private readonly List<DocumentState> _documents = [];
     private readonly Stack<(string Path, int Line)> _back = new();
     private DocumentState? _active;
@@ -60,6 +61,8 @@ public partial class MainWindow : Window
         foreach (var editor in new[] { OldEditor, NewEditor, OutputEditor }) EditorSupport.Configure(editor);
         OutputEditor.FontSize = 12;
         OutputEditor.ShowLineNumbers = false;
+        OutputEditor.Options.AllowScrollBelowDocument = false;
+        OutputEditor.TextArea.TextView.LineTransformers.Add(new BuildOutputColorizer());
         Editor.TextArea.Caret.PositionChanged += (_, _) => UpdateCaret();
         Editor.PreviewMouseWheel += (_, e) =>
         {
@@ -72,6 +75,10 @@ public partial class MainWindow : Window
         _diffScroll = new DiffScrollSynchronizer(OldEditor, NewEditor);
         Editor.IsReadOnly = true;
         InitializeWorkbench();
+        _layout.Language = UiText.Current.Language;
+        UiText.Current.PropertyChanged += LanguageChanged;
+        Closed += (_, _) => UiText.Current.PropertyChanged -= LanguageChanged;
+        _outputTimer.Tick += (_, _) => FlushBuildOutput();
 
         _memoryTimer.Tick += (_, _) => UpdateMemory(); _memoryTimer.Start(); UpdateMemory();
         Loaded += async (_, _) => { if (_initialRoot != null) await Guard(() => OpenWorkspaceAsync(_initialRoot)); };
@@ -81,14 +88,15 @@ public partial class MainWindow : Window
     {
         try { await action(); }
         catch (OperationCanceledException) { }
-        catch (Exception ex) { SetStatus(ex.Message); MessageBox.Show(this, ex.Message, "Idea Lite", MessageBoxButton.OK, MessageBoxImage.Information); }
+        catch (Exception ex) { SetStatus(ex.Message); Dialogs.Error(this, ex); }
     }
-    private void SetStatus(string text) => StatusLabel.Text = text.Replace('\n', ' ').Replace('\r', ' ');
+    private void SetStatus(string text) => UiText.Set(StatusLabel, "Text", text.Replace('\n', ' ').Replace('\r', ' '));
+    private void SetStatus(Func<string> text) => UiText.Set(StatusLabel, "Text", text);
     private void UpdateMemory()
     {
         using var process = Process.GetCurrentProcess();
         MemoryLabel.Text = $"{process.WorkingSet64 / 1048576.0:F0} MiB";
-        MemoryLabel.ToolTip = $"当前进程工作集；专用内存 {process.PrivateMemorySize64 / 1048576.0:F0} MB。Git/Maven 子进程另计。";
+        UiText.Set(MemoryLabel, "ToolTip", $"当前进程工作集；专用内存 {process.PrivateMemorySize64 / 1048576.0:F0} MB。Git/Maven 子进程另计。");
     }
     private void UpdateCaret()
     {
@@ -106,33 +114,41 @@ public partial class MainWindow : Window
         var token = _workspaceLoad.Token;
         _documents.Clear(); _active = null; _back.Clear(); _workspace = null; _git = null; _gitStatus = null;
         _loadingDocument = true; Editor.Document = new TextDocument(); Editor.IsReadOnly = true; _loadingDocument = false;
-        RebuildTabs(); FileTree.Items.Clear(); ChangesList.ItemsSource = null; MavenList.ItemsSource = null; SpringList.ItemsSource = null;
+        RebuildTabs(); FileTree.Items.Clear(); ChangesList.ItemsSource = null; MavenList.Items.Clear(); SpringList.ItemsSource = null;
         OldEditor.Clear(); NewEditor.Clear(); CommitMessage.Clear(); AmendCheck.IsChecked = false;
         SetSurface(false);
         root = Path.GetFullPath(root);
         SetStatus("正在打开项目与建立有上限的源码索引…");
         string? gitRoot;
+        string? gitIssue = null;
         try { gitRoot = await GitService.FindRootAsync(root, token); }
-        catch (Win32Exception) { gitRoot = null; SetStatus("未找到 Git，可浏览代码；请安装 Git 并加入 PATH。"); }
+        catch (Win32Exception) { gitRoot = null; gitIssue = "未找到 Git 可执行文件。请安装 Git for Windows，或将 Git 加入 PATH。"; }
+        catch (InvalidOperationException ex) { gitRoot = null; gitIssue = ex.Message; }
         root = gitRoot ?? root;
         var git = gitRoot == null ? null : new GitService(root);
         var snapshot = await WorkspaceService.LoadAsync(root, git, token);
         token.ThrowIfCancellationRequested();
         _workspace = snapshot; _git = git;
+        _lastMavenModule = null;
+        _layout.MavenGoals = _layout.MavenGoalsByProject.GetValueOrDefault(root, "test");
+        RunConfigLabel.Text = "Maven · " + _layout.MavenGoals;
         ProjectTitle.Text = Path.GetFileName(root); ProjectTitle.ToolTip = root;
         Title = $"{Path.GetFileName(root)} — Idea Lite";
         ProjectMark.Text = ProjectTitle.Text.Length > 0 ? ProjectTitle.Text[..1].ToUpperInvariant() : "IL";
         RenderProjectTree();
-        MavenList.ItemsSource = snapshot.Maven; SpringList.ItemsSource = snapshot.Spring;
+        PopulateMavenTree(); SpringList.ItemsSource = snapshot.Spring;
         RunConfigButton.IsEnabled = RunButton.IsEnabled = snapshot.Maven.Count > 0;
-        BranchLabel.Text = git == null ? "Git" : "…";
-        GitSummary.Text = git == null ? "当前目录没有 Git 仓库" : "";
+        UiText.Set(BranchLabel, "Text", git == null ? gitIssue == null ? "Git" : "Git 不可用" : "…");
+        BranchButton.ToolTip = gitIssue ?? GitService.ExecutablePath;
+        UiText.Set(GitSummary, "Text", git == null ? gitIssue ?? "当前目录没有 Git 仓库" : "");
+        GitSummary.ToolTip = gitIssue;
+        GitSummary.TextWrapping = TextWrapping.Wrap;
         if (git != null) await RefreshGitAsync();
         if (_bottom == BottomTool.Log) await LoadHistoryAsync();
 
         var first = snapshot.Files.FirstOrDefault(p => Path.GetFileName(p).Equals("README.md", StringComparison.OrdinalIgnoreCase)) ?? snapshot.Files.FirstOrDefault(p => p.EndsWith("pom.xml"));
         if (first != null) await OpenFileAsync(first);
-        SetStatus($"已打开 {root} · {snapshot.Files.Length:N0} 个文件 · {snapshot.Symbols.Count:N0} 个符号" + (snapshot.Limited ? " · 索引达到上限" : ""));
+        SetStatus(gitIssue ?? $"已打开 {root} · {snapshot.Files.Length:N0} 个文件 · {snapshot.Symbols.Count:N0} 个符号" + (snapshot.Limited ? " · 索引达到上限" : ""));
     }
 
     private void PopulateTree(ItemsControl parent, string prefix)
@@ -140,7 +156,8 @@ public partial class MainWindow : Window
         if (_workspace == null) return;
         parent.Items.Clear();
         var groups = _workspace.Files.Where(p => p.StartsWith(prefix, StringComparison.Ordinal))
-            .GroupBy(p => p[prefix.Length..].Split('/')[0]).OrderBy(g => g.Key.Contains('.') ? 1 : 0).ThenBy(g => g.Key, StringComparer.OrdinalIgnoreCase);
+            .GroupBy(p => p[prefix.Length..].Split('/')[0])
+            .OrderBy(group => group.Any(path => path == prefix + group.Key)).ThenBy(group => group.Key, StringComparer.OrdinalIgnoreCase);
         foreach (var group in groups)
         {
             var path = prefix + group.Key;
@@ -157,8 +174,10 @@ public partial class MainWindow : Window
                     path += "/" + heads[0]; name += "." + heads[0];
                 }
             }
-            var icon = isFile ? FileIcon(path) : IsPackageDirectory(path) ? "Package" : "Folder";
-            var item = new TreeViewItem { Header = FileHeader(name, icon, path), Tag = new FileNode(path, isFile) };
+            bool sourceRoot = path.EndsWith("/java", StringComparison.Ordinal) || path.EndsWith("/kotlin", StringComparison.Ordinal);
+            bool module = _workspace.Maven.Any(maven => Path.GetDirectoryName(maven.Path)?.Replace('\\', '/') == path);
+            var icon = isFile ? FileIcon(path) : sourceRoot ? "SourceRoot" : IsPackageDirectory(path) ? "Package" : module ? "Module" : "Folder";
+            var item = new TreeViewItem { Header = FileHeader(name, icon, path), Tag = new FileNode(path, isFile), Style = (Style)FindResource("ProjectTreeItem") };
 
             if (!isFile)
             {
@@ -168,7 +187,7 @@ public partial class MainWindow : Window
             parent.Items.Add(item);
         }
     }
-    internal static string FileIcon(string path) => Path.GetExtension(path).ToLowerInvariant() switch
+    internal static string FileIcon(string path) => Path.GetFileName(path).Equals("pom.xml", StringComparison.OrdinalIgnoreCase) ? "Maven" : Path.GetExtension(path).ToLowerInvariant() switch
     {
         ".java" or ".kt" or ".cs" => "Class",
         ".xml" or ".xaml" or ".html" => "Xml",
@@ -317,7 +336,7 @@ public partial class MainWindow : Window
         if (_diffLines.Length == 0) return;
         _diffIndex = (_diffIndex + direction + _diffLines.Length) % _diffLines.Length;
         _diffScroll.RevealLine(_diffLines[_diffIndex]);
-        DiffSummary.Text = $"第 {_diffIndex + 1} / {_diffLines.Length} 处差异";
+        UiText.Set(DiffSummary, "Text", $"第 {_diffIndex + 1} / {_diffLines.Length} 处差异");
     }
 
     private async Task GitOperationAsync(string title, Func<GitService, Task> action)
@@ -325,7 +344,7 @@ public partial class MainWindow : Window
         if (_git == null) { SetStatus("当前不是 Git 仓库。可在 Git 菜单中初始化。"); return; }
         if (_commandBusy) { SetStatus("另一个命令正在运行。"); return; }
         _commandBusy = true;
-        try { SetStatus(title + "…"); await action(_git); await RefreshGitAsync(); SetStatus(title + "完成"); }
+        try { SetStatus(() => UiText.Current.Translate(title) + "…"); await action(_git); await RefreshGitAsync(); SetStatus(() => UiText.Current.Format($"{UiText.Current.Translate(title)}完成")); }
         finally { _commandBusy = false; }
     }
     private string[] SelectedPaths() => ChangesList.SelectedItems.Cast<ChangeItem>().Select(item => item.Change).Distinct().SelectMany(c => c.OriginalPath == null ? new[] { c.Path } : new[] { c.Path, c.OriginalPath }).Distinct().ToArray();
@@ -334,14 +353,14 @@ public partial class MainWindow : Window
     {
         var commands = new Dictionary<string, (string Key, Func<Task> Action)>
         {
-            ["打开项目"] = ("Ctrl+O", ChooseProjectAsync),
-            ["提交"] = ("Ctrl+K", () => ActivateCommitAsync(false)),
-            ["Git 日志"] = ("Alt+9", () => SelectBottomAsync(BottomTool.Log, false)),
-            ["分支"] = ("Git", ShowBranchesAsync),
-            ["推送"] = ("Ctrl+Shift+K", PushWithPreviewAsync),
-            ["服务"] = ("Alt+8", () => SelectBottomAsync(BottomTool.Services, false)),
-            ["刷新项目"] = ("F5", RefreshWorkspaceAsync),
-            ["隐藏或恢复工具窗口"] = ("Ctrl+Shift+F12", () => { ToggleFocusMode(); return Task.CompletedTask; })
+            [UiText.Current.Translate("打开项目")] = ("Ctrl+O", ChooseProjectAsync),
+            [UiText.Current.Translate("提交")] = ("Ctrl+K", () => ActivateCommitAsync(false)),
+            [UiText.Current.Translate("Git 日志")] = ("Alt+9", () => SelectBottomAsync(BottomTool.Log, false)),
+            [UiText.Current.Translate("分支")] = ("Git", ShowBranchesAsync),
+            [UiText.Current.Translate("推送")] = ("Ctrl+Shift+K", PushWithPreviewAsync),
+            [UiText.Current.Translate("服务")] = ("Alt+8", () => SelectBottomAsync(BottomTool.Services, false)),
+            [UiText.Current.Translate("刷新项目")] = ("F5", RefreshWorkspaceAsync),
+            [UiText.Current.Translate("隐藏或恢复工具窗口")] = ("Ctrl+Shift+F12", () => { ToggleFocusMode(); return Task.CompletedTask; })
         };
         var actions = commands.Select(c => new SearchHit(c.Key, "", 0, "操作", c.Value.Key)).ToArray();
         var dialog = new SearchWindow(this, _workspace ?? new WorkspaceSnapshot("", [], [], [], [], false), mode, initial, actions: actions);
@@ -406,6 +425,10 @@ public partial class MainWindow : Window
             (ModifierKeys.Control | ModifierKeys.Alt, Key.Z) when ChangesList.IsKeyboardFocusWithin => DiscardSelectionAsync,
             (ModifierKeys.Control, Key.Enter) when CommitPane.IsKeyboardFocusWithin => CommitAsync,
             (ModifierKeys.Control, Key.O) => ChooseProjectAsync,
+            (ModifierKeys.Control, Key.T) => () => RunGitCommandAsync(["pull", "--ff-only"]),
+            (ModifierKeys.Control, Key.F9) => () => RunConfiguredMavenAsync("compile"),
+            (ModifierKeys.Shift, Key.F10) => () => RunConfiguredMavenAsync(),
+            (ModifierKeys.Control | ModifierKeys.Alt, Key.N) => CreateBranchAsync,
             (ModifierKeys.Control, Key.S) => () => SaveAsync(),
             (ModifierKeys.Control, Key.P) => () => SearchAsync(),
             (ModifierKeys.Control | ModifierKeys.Shift, Key.N) => () => SearchAsync("files"),
@@ -508,8 +531,8 @@ public partial class MainWindow : Window
 
     private async Task ChooseProjectAsync()
     {
-        var picker = new OpenFolderDialog { Title = "选择本地项目 / Git 仓库", Multiselect = false };
-        if (_workspace != null) picker.InitialDirectory = _workspace.Root;
+        var picker = new OpenFolderDialog { Title = UiText.Current.Translate("选择本地项目 / Git 仓库"), Multiselect = false };
+        if (_workspace != null && Directory.Exists(_workspace.Root)) picker.InitialDirectory = Path.GetFullPath(_workspace.Root);
         if (picker.ShowDialog(this) == true) await OpenWorkspaceAsync(picker.FolderName);
     }
     private async Task RefreshWorkspaceAsync()
@@ -523,7 +546,7 @@ public partial class MainWindow : Window
         _workspace = snapshot;
         RenderProjectTree();
         SpringList.ItemsSource = snapshot.Spring;
-        MavenList.ItemsSource = snapshot.Maven;
+        PopulateMavenTree();
         UpdateStructure();
 
         // Reload clean buffers changed by Git/AI tools, keeping dirty buffers intact.
@@ -565,7 +588,7 @@ public partial class MainWindow : Window
         if (!ConfirmCloseAll()) { e.Cancel = true; return; }
         if (_commandBusy && !Dialogs.Confirm(this, "仍有 Git / Maven 命令运行中，关闭会停止该命令。是否继续？")) { e.Cancel = true; return; }
         RememberSizes(); _layout.Save();
-        _command?.Cancel(); _workspaceLoad?.Cancel(); _diffLoad?.Cancel(); _historyLoad?.Cancel(); _detailLoad?.Cancel(); _memoryTimer.Stop();
+        _command?.Cancel(); _workspaceLoad?.Cancel(); _diffLoad?.Cancel(); _historyLoad?.Cancel(); _detailLoad?.Cancel(); _memoryTimer.Stop(); _outputTimer.Stop();
     }
 
     private async void OpenProjectClick(object sender, RoutedEventArgs e) => await Guard(ChooseProjectAsync);
@@ -664,24 +687,34 @@ public partial class MainWindow : Window
     private async void HistoryClick(object sender, RoutedEventArgs e) => await Guard(LoadHistoryAsync);
     private async void SpringDoubleClick(object sender, MouseButtonEventArgs e) { if (SpringList.SelectedItem is SearchHit hit) await Guard(() => OpenFileAsync(hit.Path, hit.Line)); }
 
-    private async void MavenDoubleClick(object sender, MouseButtonEventArgs e) { if (MavenList.SelectedItem is MavenModule module) await Guard(() => OpenFileAsync(module.Path)); }
-    private void MavenSelectionChanged(object sender, SelectionChangedEventArgs e)
+    private async void MavenDoubleClick(object sender, MouseButtonEventArgs e)
     {
-        MavenDetails.Text = MavenList.SelectedItem is MavenModule module
-            ? $"{module.Group}:{module.Artifact}:{module.Version}\n{module.Path}\n\n" + string.Join('\n', module.Dependencies) + module.Error : "";
+        if (TreeItemAt(e.OriginalSource) is not { } item) return;
+        e.Handled = true;
+        if (item.Tag is MavenTask task) await Guard(() => RunMavenAsync(task.Module, task.Goal));
+        else if (item.Tag is MavenModule module) await Guard(() => OpenFileAsync(module.Path));
     }
-    private void ShowOutput(string title, string output)
+    private void MavenSelectionChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
+    {
+        var tag = (MavenList.SelectedItem as TreeViewItem)?.Tag;
+        var module = tag is MavenTask task ? task.Module : tag as MavenModule;
+        UiText.Set(MavenDetails, "Text", () => module != null
+            ? $"{module.Group}:{module.Artifact}:{module.Version}\n{module.Path}\n\n" + string.Join('\n', module.Dependencies.Select(DependencyLabel)) + UiText.Current.Translate(module.Error) : "");
+    }
+    private void ShowOutput(string title, string output, bool localizeMessage = false)
     {
         OutputTitle.Text = title;
-        OutputEditor.Text = output;
+        _outputMessage = localizeMessage ? output : null;
+        OutputEditor.Text = localizeMessage ? UiText.Current.Translate(output) : output;
+        if (title.StartsWith("git ", StringComparison.Ordinal)) BuildTree.Items.Clear();
+        CancelBuildButton.IsEnabled = _commandBusy;
+        UiText.Set(BuildResult, "Text", title.StartsWith("git ", StringComparison.Ordinal) ? "Git" : "构建");
         _bottom = title.StartsWith("git ", StringComparison.Ordinal) ? BottomTool.Console : BottomTool.Run;
         _focusMode = false;
         ApplyLayout();
     }
 
     private void CancelCommandClick(object sender, RoutedEventArgs e) => _command?.Cancel();
-    private void HelpClick(object sender, RoutedEventArgs e) => MessageBox.Show(this,
-        "Alt+1  项目      Alt+0 / Ctrl+K  提交      Alt+9  Git 日志\nAlt+7  结构      Alt+8  服务      Alt+4  运行输出\n双击 Shift  随处搜索      Ctrl+Shift+A  查找操作\nCtrl+N  类      Ctrl+Shift+N  文件      Ctrl+Alt+Shift+N  符号\nCtrl+Shift+F  项目文本      Ctrl+F  当前文件查找\nCtrl+D  在改动列表查看 Diff，在编辑器复制行\nF4  打开工作区文件      F7 / Shift+F7  下一个 / 上一个差异\nCtrl+B / Ctrl+单击  定义      Ctrl+Alt+Left  返回\nCtrl+Alt+A  暂存所选      Ctrl+Enter  提交勾选文件\nCtrl+Shift+K  推送      Ctrl+Shift+F12  隐藏或恢复工具窗口\nCtrl+S  保存      Ctrl+Alt+L  匹配缩进      Ctrl+W  关闭标签",
-
-        "Idea Lite · 快捷键", MessageBoxButton.OK, MessageBoxImage.Information);
+    private void HelpClick(object sender, RoutedEventArgs e) => Dialogs.Information(this, "Idea Lite · 快捷键",
+        "Alt+1  项目      Alt+0 / Ctrl+K  提交      Alt+9  Git 日志\nAlt+7  结构      Alt+8  服务      Alt+4  运行输出\n双击 Shift  随处搜索      Ctrl+Shift+A  查找操作\nCtrl+N  类      Ctrl+Shift+N  文件      Ctrl+Alt+Shift+N  符号\nCtrl+Shift+F  项目文本      Ctrl+F  当前文件查找\nCtrl+D  在改动列表查看 Diff，在编辑器复制行\nF4  打开工作区文件      F7 / Shift+F7  下一个 / 上一个差异\nCtrl+B / Ctrl+单击  定义      Ctrl+Alt+Left  返回\nCtrl+Alt+A  暂存所选      Ctrl+Enter  提交勾选文件\nCtrl+Shift+K  推送      Ctrl+Shift+F12  隐藏或恢复工具窗口\nCtrl+S  保存      Ctrl+Alt+L  匹配缩进      Ctrl+W  关闭标签");
 }

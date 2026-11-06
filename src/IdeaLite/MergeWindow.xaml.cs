@@ -16,7 +16,7 @@ public partial class MergeWindow : Window
     public MergeWindow(Window owner, string path, GitDiff sides, string draft, EditorStyle style, Func<string, Task> apply)
     {
         InitializeComponent();
-        Owner = owner; Title = "合并冲突 — " + path;
+        Owner = owner; UiText.Set(this, "Title", "合并冲突 — " + path);
         Width = Math.Min(Width, SystemParameters.WorkArea.Width);
         Height = Math.Min(Height, SystemParameters.WorkArea.Height);
         FileLabel.Text = path; _initial = draft; _apply = apply;
@@ -46,10 +46,10 @@ public partial class MergeWindow : Window
         try
         {
             int remaining = Blocks().Count;
-            MergeStatus.Text = remaining == 0 ? "所有文本冲突已处理" : $"剩余 {remaining} 处冲突";
+            UiText.Set(MergeStatus, "Text", remaining == 0 ? "所有文本冲突已处理" : $"剩余 {remaining} 处冲突");
             ApplyButton.IsEnabled = remaining == 0 && !_applying;
         }
-        catch (FormatException ex) { MergeStatus.Text = ex.Message; ApplyButton.IsEnabled = false; }
+        catch (FormatException ex) { UiText.Set(MergeStatus, "Text", ex.Message); ApplyButton.IsEnabled = false; }
     }
     private void Navigate(int direction)
     {
@@ -66,7 +66,7 @@ public partial class MergeWindow : Window
             }
             UpdateStatus();
         }
-        catch (FormatException ex) { MergeStatus.Text = ex.Message; ApplyButton.IsEnabled = false; }
+        catch (FormatException ex) { UiText.Set(MergeStatus, "Text", ex.Message); ApplyButton.IsEnabled = false; }
     }
     private static void Locate(TextEditor editor, string text)
     {
@@ -88,7 +88,7 @@ public partial class MergeWindow : Window
             ResultEditor.CaretOffset = Math.Min(block.Start, ResultEditor.Document.TextLength);
             Navigate(0);
         }
-        catch (FormatException ex) { MergeStatus.Text = ex.Message; }
+        catch (FormatException ex) { UiText.Set(MergeStatus, "Text", ex.Message); }
     }
     private async void ApplyClick(object sender, RoutedEventArgs e)
     {
@@ -100,7 +100,7 @@ public partial class MergeWindow : Window
             await _apply(ResultEditor.Text);
             _applied = true; DialogResult = true;
         }
-        catch (Exception ex) { MergeStatus.Text = ex.Message; MergeStatus.ToolTip = ex.Message; }
+        catch (Exception ex) { UiText.Set(MergeStatus, "Text", ex.Message); UiText.Set(MergeStatus, "ToolTip", ex.Message); }
         finally { _applying = false; IsEnabled = true; }
     }
     private void OnClosing(object? sender, CancelEventArgs e)

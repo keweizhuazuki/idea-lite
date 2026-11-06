@@ -51,6 +51,17 @@ await Test("EditorConfig globs: *, **/, braces and case", () =>
     return Task.CompletedTask;
 });
 
+await Test("Java Javadoc stars do not become one-space code indentation", async () =>
+{
+    var root = Folder("java-indent");
+    var path = Path.Combine(root, "Example.java");
+    const string source = "/**\n * Class docs.\n */\nclass Example {\n    /**\n     * Method docs.\n     */\n    int value() {\n        return 1;\n    }\n}\n";
+    Equal(4, EditorStyle.Load(path, source).IndentSize);
+    Equal(1, EditorStyle.Load(path, "class One {\n int value;\n}\n").IndentSize);
+    await File.WriteAllTextAsync(Path.Combine(root, ".editorconfig"), "root=true\n[*.java]\nindent_size=2\n");
+    Equal(2, EditorStyle.Load(path, source).IndentSize);
+});
+
 await Test("Nested EditorConfig and whitespace policy", async () =>
 {
     var folder = Folder("styles");

@@ -14,7 +14,9 @@ public sealed record ChangeItem(GitChange Change, string Group, bool Staged, Com
 {
     public bool CanInclude => !Change.IsConflict;
     public string Icon => MainWindow.FileIcon(Change.Path);
-    public string Color => Change.IsConflict ? "#E88C80" : Change.IsUntracked || Change.Index == 'A' ? "#91BD86" : "#83ADDF";
+    public string Color => FileColor(Change);
+    internal static string FileColor(GitChange change) => change.IsConflict || change.IsUntracked || change.Index == 'D' || change.WorkTree == 'D'
+        ? "#F77669" : change.Index == 'A' ? "#C3E887" : "#80CBC4";
 }
 
 public sealed class CommitChoice : System.ComponentModel.INotifyPropertyChanged
@@ -32,7 +34,7 @@ public partial class MainWindow
 {
     private sealed record DiffPreview(string Path, bool Staged, GitChange? Change, GitRevision? Revision, RevisionFile? File)
     {
-        public string Description => Revision == null ? $"{Path} · {(Staged ? "已暂存" : "工作区")}" : $"{Path} · {Revision.ShortHash}";
+        public string Description => Revision == null ? $"{Path} · {UiText.Current.Translate(Staged ? "已暂存" : "工作区")}" : $"{Path} · {Revision.ShortHash}";
         public static DiffPreview Local(GitChange change, bool staged) => new(change.Path, staged, change, null, null);
         public static DiffPreview History(GitRevision revision, RevisionFile file) => new(file.Path, false, null, revision, file);
     }
@@ -53,7 +55,7 @@ public partial class MainWindow
         _preview = null; _renderedDiff = null; _diffScroll.Reset(); _commitChoices.Clear(); _references = []; _revisions = []; _logRef = null;
         _buildingRefs = true; LogRefs.Items.Clear(); _buildingRefs = false;
         LogList.ItemsSource = null; HistoryFiles.Items.Clear(); RevisionDetails.Clear(); OutputEditor.Clear();
-        GitSummary.Visibility = Visibility.Visible; GitSummary.Text = "正在读取改动…";
+        GitSummary.Visibility = Visibility.Visible; UiText.Set(GitSummary, "Text", "正在读取改动…");
         LogHint.Text = ""; RefFilter.Clear(); LogFilter.Clear();
     }
     private void BindChanges(GitStatus status)
@@ -79,10 +81,10 @@ public partial class MainWindow
         ChangesList.ItemsSource = view;
         foreach (var entry in entries)
             if (selection.Contains((entry.Change.Path, entry.Staged))) ChangesList.SelectedItems.Add(entry);
-        GitSummary.Text = entries.Count == 0 ? "工作区没有改动" : "";
+        UiText.Set(GitSummary, "Text", entries.Count == 0 ? "工作区没有改动" : "");
         GitSummary.Visibility = Visible(entries.Count == 0);
         UpdateCommitSelection();
-        CommitRail.ToolTip = $"提交 Commit · Alt+0 · {status.Changes.Count} 个改动";
+        UiText.Set(CommitRail, "ToolTip", $"提交 Commit · Alt+0 · {status.Changes.Count} 个改动");
     }
     private void UpdateCommitSelection()
     {
@@ -90,7 +92,7 @@ public partial class MainWindow
         var eligible = (_gitStatus?.Changes ?? []).Where(c => !c.IsConflict).Select(c => _commitChoices[c.Path]).ToArray();
         int count = eligible.Count(c => c.Included);
         SelectAllChanges.IsChecked = count == 0 ? false : count == eligible.Length ? true : null;
-        SelectionSummary.Text = $"已选择 {count} / {eligible.Length} 个文件";
+        UiText.Set(SelectionSummary, "Text", $"已选择 {count} / {eligible.Length} 个文件");
         bool enabled = count > 0 || AmendCheck.IsChecked == true;
         CommitSelectedButton.IsEnabled = CommitPushButton.IsEnabled = enabled;
     }
@@ -153,15 +155,21 @@ public partial class MainWindow
         _diffScroll.Reset();
         EditorSupport.SetDiffText(OldEditor, model.OldText.Lines, preview.File?.OldPath ?? preview.Path, true);
         EditorSupport.SetDiffText(NewEditor, model.NewText.Lines, preview.Path, false);
-        OldLabel.Text = diff.OldLabel;
-        NewLabel.Text = diff.NewLabel;
+        UiText.Set(OldLabel, "Text", () => TranslateDiffLabel(diff.OldLabel));
+        UiText.Set(NewLabel, "Text", () => TranslateDiffLabel(diff.NewLabel));
         _diffLines = model.NewText.Lines.Select((line, i) => (line, i)).Where(x => x.line.Type != ChangeType.Unchanged &&
             (x.i == 0 || model.NewText.Lines[x.i - 1].Type == ChangeType.Unchanged)).Select(x => x.i + 1).ToArray();
         _diffIndex = -1;
-        DiffSummary.Text = _diffLines.Length == 0 ? "没有文本差异" : $"{_diffLines.Length} 处差异";
+        UiText.Set(DiffSummary, "Text", _diffLines.Length == 0 ? "没有文本差异" : $"{_diffLines.Length} 处差异");
         SetSurface(true);
         SetStatus(preview.Description);
         MoveDiff(1);
+    }
+
+    private static string TranslateDiffLabel(string label)
+    {
+        var parts = label.Split("   ", 2, StringSplitOptions.None);
+        return UiText.Current.Translate(parts[0]) + (parts.Length == 2 ? "   " + parts[1] : "");
     }
 
     private async Task OpenMergeAsync(GitChange change)
@@ -201,7 +209,7 @@ public partial class MainWindow
         var git = _git;
         _historyLoad?.Cancel(); _historyLoad?.Dispose(); _historyLoad = new();
         var token = _historyLoad.Token;
-        if (git == null) { LogHint.Text = "打开 Git 仓库后查看日志"; return; }
+        if (git == null) { UiText.Set(LogHint, "Text", "打开 Git 仓库后查看日志"); return; }
         var reference = _logRef;
         var refsTask = git.ReferencesAsync(token);
         var logTask = git.RevisionsAsync(reference, token);
@@ -219,16 +227,16 @@ public partial class MainWindow
         try
         {
             LogRefs.Items.Clear();
-            var all = new TreeViewItem { Header = FileHeader("所有分支", "Git", "所有本地和远程引用") };
+            var all = new TreeViewItem { Header = FileHeader(UiText.Current.Translate("所有分支"), "Git", UiText.Current.Translate("所有本地和远程引用")) };
             LogRefs.Items.Add(all);
             if (_logRef == null) all.IsSelected = true;
-            var head = new TreeViewItem { Header = FileHeader("HEAD (当前分支)", "Tag", "当前分支的历史"), Tag = "HEAD" };
+            var head = new TreeViewItem { Header = FileHeader(UiText.Current.Translate("HEAD (当前分支)"), "Tag", UiText.Current.Translate("当前分支的历史")), Tag = "HEAD" };
             LogRefs.Items.Add(head);
             if (_logRef == "HEAD") head.IsSelected = true;
             var filter = RefFilter.Text.Trim();
             foreach (var group in _references.Where(r => r.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)).Take(1000).GroupBy(r => r.Group))
             {
-                var node = new TreeViewItem { Header = group.Key, IsExpanded = group.Key == "本地" || filter.Length > 0 };
+                var node = new TreeViewItem { Header = group.Key, IsExpanded = group.Key == "本地" || filter.Length > 0 }.Localize("Header");
                 LogRefs.Items.Add(node);
                 foreach (var reference in group)
                 {
@@ -261,13 +269,13 @@ public partial class MainWindow
         var graph = LogRow.Build(rows, query.Length > 0);
         LogList.ItemsSource = graph;
         LogList.SelectedItem = graph.FirstOrDefault(r => r.Revision.Hash == previous) ?? graph.FirstOrDefault();
-        LogHint.Text = graph.Count == 0 ? (query.Length > 0 ? "没有匹配的提交" : "暂无提交") : "";
+        UiText.Set(LogHint, "Text", graph.Count == 0 ? (query.Length > 0 ? "没有匹配的提交" : "暂无提交") : "");
     }
     private async void LogSelectionChanged(object sender, SelectionChangedEventArgs e) => await Guard(async () =>
     {
         _detailLoad?.Cancel(); _detailLoad?.Dispose(); _detailLoad = new();
         var token = _detailLoad.Token;
-        HistoryFiles.Items.Clear(); RevisionDetails.Text = ""; HistoryFilesTitle.Text = "更改的文件";
+        HistoryFiles.Items.Clear(); RevisionDetails.Text = ""; UiText.Set(HistoryFilesTitle, "Text", "更改的文件");
         if (LogList.SelectedItem is not LogRow row || _git == null) return;
         var revision = row.Revision;
         var filesTask = _git.RevisionFilesAsync(revision, token);
@@ -277,7 +285,7 @@ public partial class MainWindow
         var files = await filesTask;
         var message = (await messageTask).EnsureSuccess().Output.TrimEnd();
         RevisionDetails.Text = $"{message}\n\n{revision.ShortHash}   {revision.Author}\n{revision.Date.ToLocalTime():yyyy-MM-dd HH:mm}   {revision.References}";
-        HistoryFilesTitle.Text = $"{files.Count} 个更改文件";
+        UiText.Set(HistoryFilesTitle, "Text", $"{files.Count} 个更改文件");
         // Compact directories so the changed file is visible even in a short bottom tool window.
         foreach (var group in files.Take(1500).GroupBy(file => Path.GetDirectoryName(file.Path)?.Replace('\\', '/') ?? ""))
         {
@@ -303,7 +311,7 @@ public partial class MainWindow
             }
         }
 
-        if (files.Count > 1500) HistoryFilesTitle.Text += "（显示前 1,500 个）";
+        if (files.Count > 1500) UiText.Set(HistoryFilesTitle, "Text", $"{files.Count} 个更改文件（显示前 1,500 个）");
     });
     private async Task OpenHistoryFileAsync()
     {

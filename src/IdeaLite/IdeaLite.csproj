@@ -8,6 +8,10 @@
     <Description>A small native code editor and Git workbench for Java projects.</Description>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="Strings.en.json" LogicalName="IdeaLite.Strings.en.json" WithCulture="false" />
+    <EmbeddedResource Include="Assets\JavaDark.xshd" LogicalName="IdeaLite.JavaDark.xshd" />
+    <Resource Include="Assets\Fonts\*.ttf" />
+    <Content Include="Assets\Fonts\*.ttf" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <ProjectReference Include="..\IdeaLite.Core\IdeaLite.Core.csproj" />
     <PackageReference Include="AvalonEdit" Version="6.3.1.120" />
     <PackageReference Include="DiffPlex" Version="1.9.0" />

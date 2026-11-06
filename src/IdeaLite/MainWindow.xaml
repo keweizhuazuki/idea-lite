@@ -6,28 +6,29 @@
     Title="Idea Lite" Style="{StaticResource {x:Type Window}}" Width="1380" Height="860" MinWidth="840" MinHeight="540"
     WindowStartupLocation="CenterScreen" PreviewKeyDown="OnKeyDown" PreviewKeyUp="OnKeyUp" Closing="OnClosing" Activated="OnActivated">
   <WindowChrome.WindowChrome><WindowChrome CaptionHeight="40" ResizeBorderThickness="5" GlassFrameThickness="0" CornerRadius="0" UseAeroCaptionButtons="False"/></WindowChrome.WindowChrome>
-  <Grid Background="{StaticResource Panel}">
+  <Grid Background="#222426" UseLayoutRounding="True" SnapsToDevicePixels="True">
     <Grid.RowDefinitions><RowDefinition Height="40"/><RowDefinition Height="*"/><RowDefinition Height="26"/></Grid.RowDefinitions>
     <Grid>
-      <Grid.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,0"><GradientStop Color="#373646" Offset="0"/><GradientStop Color="#2B2D30" Offset="0.38"/></LinearGradientBrush></Grid.Background>
+      <Grid.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,0"><GradientStop Color="#314A3B" Offset="0"/><GradientStop Color="#222426" Offset="0.45"/></LinearGradientBrush></Grid.Background>
       <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
       <StackPanel Orientation="Horizontal" Margin="5,0" VerticalAlignment="Center" WindowChrome.IsHitTestVisibleInChrome="True">
-        <Button Style="{StaticResource ToolButton}" Click="MainMenuClick" ToolTip="主菜单" AutomationProperties.Name="主菜单" ><ui:IdeIcon Kind="Menu" /></Button>
-        <Button Style="{StaticResource FlatButton}" Click="ProjectMenuClick" ToolTip="项目 · 打开项目" AutomationProperties.Name="项目选择器">
+        <Button Style="{StaticResource ToolButton}" Click="MainMenuClick" ToolTip="{ui:Tr '主菜单'}" AutomationProperties.Name="{ui:Tr '主菜单'}" ><ui:IdeIcon Kind="Menu" /></Button>
+        <Button Style="{StaticResource FlatButton}" Click="ProjectMenuClick" ToolTip="{ui:Tr '项目 · 打开项目'}" AutomationProperties.Name="{ui:Tr '项目选择器'}">
           <StackPanel Orientation="Horizontal"><Border Background="#7163A0" CornerRadius="4" Width="22" Height="22"><TextBlock x:Name="ProjectMark" Text="IL" HorizontalAlignment="Center" FontWeight="SemiBold" FontSize="11" Foreground="White"/></Border><TextBlock x:Name="ProjectTitle" Text="Idea Lite" Margin="7,0,4,0" MaxWidth="210" TextTrimming="CharacterEllipsis"/><ui:IdeIcon Kind="Down" Width="13" Height="13"/></StackPanel>
         </Button>
-        <Button x:Name="BranchButton" Style="{StaticResource FlatButton}" Click="BranchClick" ToolTip="Git 分支 · Ctrl+Shift+`" AutomationProperties.Name="Git 分支">
+        <Button x:Name="BranchButton" Style="{StaticResource FlatButton}" Click="BranchClick" ToolTip="{ui:Tr 'Git 分支 · Ctrl+Shift+`'}" AutomationProperties.Name="{ui:Tr 'Git 分支'}">
           <StackPanel Orientation="Horizontal"><ui:IdeIcon Kind="Git" Width="16" Height="16"/><TextBlock x:Name="BranchLabel" Text="Git" Margin="6,0,4,0" MaxWidth="210" TextTrimming="CharacterEllipsis"/><ui:IdeIcon Kind="Down" Width="13" Height="13"/></StackPanel>
         </Button>
       </StackPanel>
       <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" WindowChrome.IsHitTestVisibleInChrome="True">
-        <Button x:Name="RunConfigButton" Style="{StaticResource FlatButton}" Click="MavenClick" ToolTip="选择 Maven 任务"><StackPanel Orientation="Horizontal"><TextBlock Text="Maven"/><ui:IdeIcon Kind="Down" Width="12" Height="12" Margin="4,0,0,0"/></StackPanel></Button>
-        <Button x:Name="RunButton" Style="{StaticResource ToolButton}" Click="MavenClick" ToolTip="运行 Maven 任务"><ui:IdeIcon Kind="Run" Foreground="#73C991"/></Button>
-        <Button Style="{StaticResource ToolButton}" Click="SearchClick" ToolTip="随处搜索 · 双击 Shift" AutomationProperties.Name="随处搜索 · 双击 Shift" Margin="12,0,1,0"><ui:IdeIcon Kind="Search" /></Button>
-        <Button Style="{StaticResource ToolButton}" x:Name="SettingsButton" Click="SettingsClick" ToolTip="设置与工具窗口布局" AutomationProperties.Name="设置与工具窗口布局" ><ui:IdeIcon Kind="Settings" /></Button>
-        <Button Style="{StaticResource ToolButton}" Click="MinimizeClick" ToolTip="最小化" AutomationProperties.Name="最小化" Width="36" Margin="10,0,0,0"><ui:IdeIcon Kind="Minus" /></Button>
-        <Button Style="{StaticResource ToolButton}" Click="MaximizeClick" ToolTip="最大化或还原" AutomationProperties.Name="最大化或还原" Width="36"><ui:IdeIcon Kind="Maximize" /></Button>
-        <Button Style="{StaticResource ToolButton}" Click="CloseWindowClick" ToolTip="关闭窗口" AutomationProperties.Name="关闭窗口" Width="36" Margin="0,0,3,0"><ui:IdeIcon Kind="Close" /></Button>
+        <Button x:Name="RunConfigButton" Style="{StaticResource FlatButton}" Click="RunConfigClick" ToolTip="{ui:Tr '选择 Maven 任务'}"><StackPanel Orientation="Horizontal"><TextBlock x:Name="RunConfigLabel" Text="Maven" MaxWidth="230" TextTrimming="CharacterEllipsis"/><ui:IdeIcon Kind="Down" Width="12" Height="12" Margin="4,0,0,0"/></StackPanel></Button>
+        <Button x:Name="RunButton" Style="{StaticResource ToolButton}" Click="RunLastMavenClick" ToolTip="{ui:Tr '运行当前 Maven 任务 · Shift+F10'}"><ui:IdeIcon Kind="Run" Foreground="#73C991"/></Button>
+        <Button Style="{StaticResource ToolButton}" Click="SearchClick" ToolTip="{ui:Tr '随处搜索 · 双击 Shift'}" AutomationProperties.Name="{ui:Tr '随处搜索 · 双击 Shift'}" Margin="12,0,1,0"><ui:IdeIcon Kind="Search" /></Button>
+        <Button x:Name="LanguageButton" Style="{StaticResource FlatButton}" Click="LanguageClick" ToolTip="{ui:Tr '界面语言'}" AutomationProperties.Name="{ui:Tr '界面语言'}"><TextBlock Text="{Binding LanguageLabel, Source={x:Static ui:UiText.Current}}" MinWidth="22" TextAlignment="Center"/></Button>
+        <Button Style="{StaticResource ToolButton}" x:Name="SettingsButton" Click="SettingsClick" ToolTip="{ui:Tr '设置与工具窗口布局'}" AutomationProperties.Name="{ui:Tr '设置与工具窗口布局'}" ><ui:IdeIcon Kind="Settings" /></Button>
+        <Button Style="{StaticResource ToolButton}" Click="MinimizeClick" ToolTip="{ui:Tr '最小化'}" AutomationProperties.Name="{ui:Tr '最小化'}" Width="36" Margin="10,0,0,0"><ui:IdeIcon Kind="Minus" /></Button>
+        <Button Style="{StaticResource ToolButton}" Click="MaximizeClick" ToolTip="{ui:Tr '最大化或还原'}" AutomationProperties.Name="{ui:Tr '最大化或还原'}" Width="36"><ui:IdeIcon Kind="Maximize" /></Button>
+        <Button Style="{StaticResource ToolButton}" Click="CloseWindowClick" ToolTip="{ui:Tr '关闭窗口'}" AutomationProperties.Name="{ui:Tr '关闭窗口'}" Width="36" Margin="0,0,3,0"><ui:IdeIcon Kind="Close" /></Button>
       </StackPanel>
     </Grid>
     <Grid Grid.Row="1">
@@ -35,15 +36,15 @@
       <Border BorderBrush="{StaticResource Stroke}" BorderThickness="0,0,1,0">
         <DockPanel LastChildFill="False">
           <StackPanel DockPanel.Dock="Top">
-            <Button Style="{StaticResource StripeButton}" Click="ProjectToolClick" ToolTip="项目 Project · Alt+1" AutomationProperties.Name="项目 Project · Alt+1" x:Name="ProjectRail"><ui:IdeIcon Kind="Project" /></Button>
-            <Button Style="{StaticResource StripeButton}" Click="CommitToolClick" ToolTip="提交 Commit · Alt+0" AutomationProperties.Name="提交 Commit · Alt+0" x:Name="CommitRail"><ui:IdeIcon Kind="Commit" /></Button>
-            <Button Style="{StaticResource StripeButton}" Click="StructureToolClick" ToolTip="结构 Structure · Alt+7" AutomationProperties.Name="结构 Structure · Alt+7" x:Name="StructureRail"><ui:IdeIcon Kind="Structure" /></Button>
+            <Button Style="{StaticResource StripeButton}" Click="ProjectToolClick" ToolTip="{ui:Tr '项目 Project · Alt+1'}" AutomationProperties.Name="{ui:Tr '项目 Project · Alt+1'}" x:Name="ProjectRail"><ui:IdeIcon Kind="Project" /></Button>
+            <Button Style="{StaticResource StripeButton}" Click="CommitToolClick" ToolTip="{ui:Tr '提交 Commit · Alt+0'}" AutomationProperties.Name="{ui:Tr '提交 Commit · Alt+0'}" x:Name="CommitRail"><ui:IdeIcon Kind="Commit" /></Button>
+            <Button Style="{StaticResource StripeButton}" Click="StructureToolClick" ToolTip="{ui:Tr '结构 Structure · Alt+7'}" AutomationProperties.Name="{ui:Tr '结构 Structure · Alt+7'}" x:Name="StructureRail"><ui:IdeIcon Kind="Structure" /></Button>
           </StackPanel>
           <StackPanel DockPanel.Dock="Bottom" Margin="0,0,0,4">
-            <Button Style="{StaticResource StripeButton}" Click="ServicesToolClick" ToolTip="服务 Services · Alt+8" AutomationProperties.Name="服务 Services · Alt+8" x:Name="ServicesRail"><ui:IdeIcon Kind="Services" /></Button>
-            <Button Style="{StaticResource StripeButton}" Click="RunToolClick" ToolTip="运行输出 · Alt+4" AutomationProperties.Name="运行输出 · Alt+4" x:Name="OutputRail"><ui:IdeIcon Kind="Run" /></Button>
-            <Button Style="{StaticResource StripeButton}" Click="TerminalClick" ToolTip="在系统终端打开项目 · Alt+F12" AutomationProperties.Name="在系统终端打开项目 · Alt+F12" x:Name="TerminalRail"><ui:IdeIcon Kind="Terminal" /></Button>
-            <Button Style="{StaticResource StripeButton}" Click="GitToolClick" ToolTip="Git 日志 · Alt+9" AutomationProperties.Name="Git 日志 · Alt+9" x:Name="GitRail"><ui:IdeIcon Kind="Git" /></Button>
+            <Button Style="{StaticResource StripeButton}" Click="ServicesToolClick" ToolTip="{ui:Tr '服务 Services · Alt+8'}" AutomationProperties.Name="{ui:Tr '服务 Services · Alt+8'}" x:Name="ServicesRail"><ui:IdeIcon Kind="Services" /></Button>
+            <Button Style="{StaticResource StripeButton}" Click="RunToolClick" ToolTip="{ui:Tr '构建输出 · Alt+4'}" AutomationProperties.Name="{ui:Tr '构建输出 · Alt+4'}" x:Name="OutputRail"><ui:IdeIcon Kind="Build" /></Button>
+            <Button Style="{StaticResource StripeButton}" Click="TerminalClick" ToolTip="{ui:Tr '打开 Git Bash · Alt+F12'}" AutomationProperties.Name="{ui:Tr '打开 Git Bash · Alt+F12'}" x:Name="TerminalRail"><ui:IdeIcon Kind="Terminal" /></Button>
+            <Button Style="{StaticResource StripeButton}" Click="GitToolClick" ToolTip="{ui:Tr 'Git 日志 · Alt+9'}" AutomationProperties.Name="{ui:Tr 'Git 日志 · Alt+9'}" x:Name="GitRail"><ui:IdeIcon Kind="Git" /></Button>
           </StackPanel>
         </DockPanel>
       </Border>
@@ -52,48 +53,51 @@
         <Grid.RowDefinitions><RowDefinition/><RowDefinition x:Name="BottomSplitRow" Height="0"/><RowDefinition x:Name="BottomRow" Height="0"/></Grid.RowDefinitions>
         <Grid>
           <Grid.ColumnDefinitions><ColumnDefinition x:Name="LeftColumn" Width="282"/><ColumnDefinition x:Name="LeftSplitColumn" Width="4"/><ColumnDefinition Width="*"/><ColumnDefinition x:Name="RightSplitColumn" Width="0"/><ColumnDefinition x:Name="RightColumn" Width="0"/></Grid.ColumnDefinitions>
-          <Grid x:Name="LeftHost" ClipToBounds="True">
+          <Border Background="{StaticResource Panel}" CornerRadius="9" BorderBrush="{StaticResource Stroke}" BorderThickness="1" Margin="3,3,0,0"><Grid x:Name="LeftHost" ClipToBounds="True">
             <Grid x:Name="ProjectPane">
               <Grid.RowDefinitions><RowDefinition Height="34"/><RowDefinition/></Grid.RowDefinitions>
-              <DockPanel><StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><Button Style="{StaticResource ToolButton}" Click="SelectCurrentClick" ToolTip="定位当前文件" AutomationProperties.Name="定位当前文件" ><ui:IdeIcon Kind="Target" /></Button><Button Style="{StaticResource ToolButton}" Click="CollapseTreeClick" ToolTip="折叠目录" AutomationProperties.Name="折叠目录" ><ui:IdeIcon Kind="Collapse" /></Button><Button Style="{StaticResource ToolButton}" Click="RefreshClick" ToolTip="刷新项目 · F5" AutomationProperties.Name="刷新项目 · F5" ><ui:IdeIcon Kind="Refresh" /></Button><Button Style="{StaticResource ToolButton}" Click="HideLeftClick" ToolTip="隐藏项目窗口" AutomationProperties.Name="隐藏项目窗口" ><ui:IdeIcon Kind="Minus" /></Button></StackPanel><TextBlock Text="项目" Style="{StaticResource ToolHeader}"/></DockPanel>
+              <DockPanel><StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><Button Style="{StaticResource ToolButton}" Click="SelectCurrentClick" ToolTip="{ui:Tr '定位当前文件'}" AutomationProperties.Name="{ui:Tr '定位当前文件'}" ><ui:IdeIcon Kind="Target" /></Button><Button Style="{StaticResource ToolButton}" Click="CollapseTreeClick" ToolTip="{ui:Tr '折叠目录'}" AutomationProperties.Name="{ui:Tr '折叠目录'}" ><ui:IdeIcon Kind="Collapse" /></Button><Button Style="{StaticResource ToolButton}" Click="RefreshClick" ToolTip="{ui:Tr '刷新项目 · F5'}" AutomationProperties.Name="{ui:Tr '刷新项目 · F5'}" ><ui:IdeIcon Kind="Refresh" /></Button><Button Style="{StaticResource ToolButton}" Click="HideLeftClick" ToolTip="{ui:Tr '隐藏项目窗口'}" AutomationProperties.Name="{ui:Tr '隐藏项目窗口'}" ><ui:IdeIcon Kind="Minus" /></Button></StackPanel><TextBlock Text="{ui:Tr '项目'}" Style="{StaticResource ToolHeader}"/></DockPanel>
               <TreeView Grid.Row="1" x:Name="FileTree" Margin="4,1" MouseDoubleClick="TreeDoubleClick" KeyDown="TreeKeyDown" PreviewMouseRightButtonDown="TreeRightClick">
-                <TreeView.ContextMenu><ContextMenu><MenuItem Header="打开" Click="TreeOpenClick"/><MenuItem Header="新建文件…" Click="NewFileClick"/><MenuItem Header="复制相对路径" Click="CopyPathClick"/><MenuItem Header="在资源管理器中显示" Click="RevealClick"/></ContextMenu></TreeView.ContextMenu>
+                <TreeView.ContextMenu><ContextMenu><MenuItem Header="{ui:Tr '打开'}" Click="TreeOpenClick"/><MenuItem Header="{ui:Tr '新建文件…'}" Click="NewFileClick"/><MenuItem Header="{ui:Tr '复制相对路径'}" Click="CopyPathClick"/><MenuItem Header="{ui:Tr '在资源管理器中显示'}" Click="RevealClick"/></ContextMenu></TreeView.ContextMenu>
               </TreeView>
             </Grid>
             <ContentControl x:Name="LeftCommitHost" Visibility="Collapsed">
               <Grid x:Name="CommitPane" Background="{StaticResource Panel}">
-                <Grid.RowDefinitions><RowDefinition Height="34"/><RowDefinition Height="30"/><RowDefinition Height="26"/><RowDefinition/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                <DockPanel><StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><Button Style="{StaticResource ToolButton}" Click="GitMenuClick" ToolTip="Git 操作" AutomationProperties.Name="Git 操作" ><ui:IdeIcon Kind="More" /></Button><Button Style="{StaticResource ToolButton}" Click="HideCommitClick" ToolTip="隐藏提交窗口" AutomationProperties.Name="隐藏提交窗口" ><ui:IdeIcon Kind="Minus" /></Button></StackPanel><TextBlock Text="提交" Style="{StaticResource ToolHeader}"/></DockPanel>
+                <Grid.RowDefinitions><RowDefinition Height="34"/><RowDefinition Height="30"/><RowDefinition Height="26"/><RowDefinition/><RowDefinition Height="5"/><RowDefinition Height="200" MinHeight="80"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <DockPanel><StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><Button Style="{StaticResource ToolButton}" Click="GitMenuClick" ToolTip="{ui:Tr 'Git 操作'}" AutomationProperties.Name="{ui:Tr 'Git 操作'}" ><ui:IdeIcon Kind="More" /></Button><Button Style="{StaticResource ToolButton}" Click="HideCommitClick" ToolTip="{ui:Tr '隐藏提交窗口'}" AutomationProperties.Name="{ui:Tr '隐藏提交窗口'}" ><ui:IdeIcon Kind="Minus" /></Button></StackPanel><TextBlock Text="{ui:Tr '提交'}" Style="{StaticResource ToolHeader}"/></DockPanel>
                 <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="6,0">
-                  <Button Style="{StaticResource ToolButton}" Click="GitRefreshClick" ToolTip="刷新改动" AutomationProperties.Name="刷新改动" ><ui:IdeIcon Kind="Refresh" /></Button><Button Style="{StaticResource ToolButton}" Click="StageClick" ToolTip="暂存所选 · Ctrl+Alt+A" AutomationProperties.Name="暂存所选 · Ctrl+Alt+A" ><ui:IdeIcon Kind="Plus" /></Button><Button Style="{StaticResource ToolButton}" Click="UnstageClick" ToolTip="取消暂存所选" AutomationProperties.Name="取消暂存所选" ><ui:IdeIcon Kind="Minus" /></Button><Button Style="{StaticResource ToolButton}" Click="PreviewChangeClick" ToolTip="显示差异 · Ctrl+D" AutomationProperties.Name="显示差异 · Ctrl+D" ><ui:IdeIcon Kind="Diff" /></Button><Button Style="{StaticResource ToolButton}" Click="ChangeActionsClick" ToolTip="更多改动操作" AutomationProperties.Name="更多改动操作" ><ui:IdeIcon Kind="More" /></Button>
+                  <Button Style="{StaticResource ToolButton}" Click="GitRefreshClick" ToolTip="{ui:Tr '刷新改动'}" AutomationProperties.Name="{ui:Tr '刷新改动'}" ><ui:IdeIcon Kind="Refresh" /></Button><Button Style="{StaticResource ToolButton}" Click="StageClick" ToolTip="{ui:Tr '暂存所选 · Ctrl+Alt+A'}" AutomationProperties.Name="{ui:Tr '暂存所选 · Ctrl+Alt+A'}" ><ui:IdeIcon Kind="Plus" /></Button><Button Style="{StaticResource ToolButton}" Click="UnstageClick" ToolTip="{ui:Tr '取消暂存所选'}" AutomationProperties.Name="{ui:Tr '取消暂存所选'}" ><ui:IdeIcon Kind="Minus" /></Button><Button Style="{StaticResource ToolButton}" Click="PreviewChangeClick" ToolTip="{ui:Tr '显示差异 · Ctrl+D'}" AutomationProperties.Name="{ui:Tr '显示差异 · Ctrl+D'}" ><ui:IdeIcon Kind="Diff" /></Button><Button Style="{StaticResource ToolButton}" Click="ChangeActionsClick" ToolTip="{ui:Tr '更多改动操作'}" AutomationProperties.Name="{ui:Tr '更多改动操作'}" ><ui:IdeIcon Kind="More" /></Button>
                 </StackPanel>
-                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="9,0"><CheckBox x:Name="SelectAllChanges" IsThreeState="True" Content="全选" Click="SelectAllChangesClick"/><TextBlock x:Name="SelectionSummary" FontSize="11" Foreground="{StaticResource Muted}" Margin="7,0"/></StackPanel>
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="9,0"><CheckBox x:Name="SelectAllChanges" IsThreeState="True" Content="{ui:Tr '全选'}" Click="SelectAllChangesClick"/><TextBlock x:Name="SelectionSummary" FontSize="11" Foreground="{StaticResource Muted}" Margin="7,0"/></StackPanel>
                 <Grid Grid.Row="3"><ListBox x:Name="ChangesList" Margin="4,1" SelectionMode="Extended" ItemContainerStyle="{StaticResource CompactRow}" MouseDoubleClick="ChangeDoubleClick" PreviewMouseRightButtonDown="ChangeRightClick" VirtualizingPanel.IsVirtualizingWhenGrouping="True">
-                  <ListBox.GroupStyle><GroupStyle><GroupStyle.ContainerStyle><Style TargetType="GroupItem"><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="GroupItem"><Expander IsExpanded="True" Foreground="{StaticResource Fg}"><Expander.Header><StackPanel Orientation="Horizontal"><TextBlock Text="{Binding Name}" FontWeight="SemiBold"/><TextBlock Text="{Binding ItemCount}" Foreground="{StaticResource Muted}" Margin="8,0,0,0"/></StackPanel></Expander.Header><ItemsPresenter Margin="12,0,0,2"/></Expander></ControlTemplate></Setter.Value></Setter></Style></GroupStyle.ContainerStyle></GroupStyle></ListBox.GroupStyle>
+                  <ListBox.GroupStyle><GroupStyle><GroupStyle.ContainerStyle><Style TargetType="GroupItem"><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="GroupItem"><Expander IsExpanded="True" Foreground="{StaticResource Fg}"><Expander.Header><StackPanel Orientation="Horizontal"><TextBlock Text="{ui:TranslateBinding Name}" FontWeight="SemiBold"/><TextBlock Text="{Binding ItemCount}" Foreground="{StaticResource Muted}" Margin="8,0,0,0"/></StackPanel></Expander.Header><ItemsPresenter Margin="12,0,0,2"/></Expander></ControlTemplate></Setter.Value></Setter></Style></GroupStyle.ContainerStyle></GroupStyle></ListBox.GroupStyle>
                   <ListBox.ItemTemplate><DataTemplate><Grid Height="22" ToolTip="{Binding Change.Path}"><Grid.ColumnDefinitions><ColumnDefinition Width="22"/><ColumnDefinition Width="20"/><ColumnDefinition Width="Auto"/><ColumnDefinition/></Grid.ColumnDefinitions><CheckBox IsChecked="{Binding Choice.Included, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="{Binding Change.Name}" Margin="1,0" IsEnabled="{Binding CanInclude}"/><ui:IdeIcon Grid.Column="1" Kind="{Binding Icon}" Width="14" Height="14" Foreground="{Binding Color}"/><TextBlock Grid.Column="2" Text="{Binding Change.Name}" Foreground="{Binding Color}" TextTrimming="CharacterEllipsis" MaxWidth="205"/><TextBlock Grid.Column="3" Text="{Binding Change.Directory}" Margin="6,0,0,0" FontSize="11" Foreground="{StaticResource Muted}" TextTrimming="CharacterEllipsis"/></Grid></DataTemplate></ListBox.ItemTemplate>
-                  <ListBox.ContextMenu><ContextMenu><MenuItem Header="显示差异" InputGestureText="Ctrl+D" Click="PreviewChangeClick"/><MenuItem Header="查看已暂存差异" Click="StagedDiffClick"/><MenuItem Header="跳转到源文件" InputGestureText="F4" Click="EditChangeClick"/><Separator/><MenuItem Header="暂存高亮项" InputGestureText="Ctrl+Alt+A" Click="StageClick"/><MenuItem Header="取消暂存" Click="UnstageClick"/><MenuItem Header="全部暂存" Click="StageAllClick"/><Separator/><MenuItem Header="回滚工作区改动…" Click="DiscardClick"/></ContextMenu></ListBox.ContextMenu>
-                </ListBox><TextBlock x:Name="GitSummary" Text="打开 Git 仓库" Foreground="{StaticResource Muted}" HorizontalAlignment="Center" IsHitTestVisible="False"/></Grid>
-                <CheckBox Grid.Row="4" x:Name="AmendCheck" Click="AmendChanged" Content="修改上一次提交 (Amend)" Margin="10,5"/>
-                <TextBox Grid.Row="5" x:Name="CommitMessage" Height="78" Margin="8,2" TextWrapping="Wrap" AcceptsReturn="True" ToolTip="提交说明" AutomationProperties.Name="提交说明" VerticalScrollBarVisibility="Auto"/>
-                <TextBlock Grid.Row="5" Text="提交说明" Margin="18,9" VerticalAlignment="Top" Style="{StaticResource FilterHint}" Tag="{Binding Text, ElementName=CommitMessage}"/>
-                <WrapPanel Grid.Row="6" Margin="5,2,5,6"><Button Style="{StaticResource Primary}" x:Name="CommitSelectedButton" Content="提交已选" Click="CommitClick" ToolTip="提交勾选文件的工作区内容 · Ctrl+Enter" IsEnabled="False"/><Button x:Name="CommitPushButton" Content="提交并推送…" Click="CommitPushClick" IsEnabled="False"/></WrapPanel>
+                  <ListBox.ContextMenu><ContextMenu><MenuItem Header="{ui:Tr '显示差异'}" InputGestureText="Ctrl+D" Click="PreviewChangeClick"/><MenuItem Header="{ui:Tr '查看已暂存差异'}" Click="StagedDiffClick"/><MenuItem Header="{ui:Tr '跳转到源文件'}" InputGestureText="F4" Click="EditChangeClick"/><Separator/><MenuItem Header="{ui:Tr '暂存高亮项'}" InputGestureText="Ctrl+Alt+A" Click="StageClick"/><MenuItem Header="{ui:Tr '取消暂存'}" Click="UnstageClick"/><MenuItem Header="{ui:Tr '全部暂存'}" Click="StageAllClick"/><Separator/><MenuItem Header="{ui:Tr '回滚工作区改动…'}" Click="DiscardClick"/></ContextMenu></ListBox.ContextMenu>
+                </ListBox><TextBlock x:Name="GitSummary" Text="{ui:Tr '打开 Git 仓库'}" Foreground="{StaticResource Muted}" HorizontalAlignment="Center" IsHitTestVisible="False"/></Grid>
+                <GridSplitter Grid.Row="4" ResizeDirection="Rows" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="Transparent"/>
+                <Grid Grid.Row="5"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition/></Grid.RowDefinitions>
+                  <CheckBox x:Name="AmendCheck" Click="AmendChanged" Content="{ui:Tr '修改上一次提交 (Amend)'}" Margin="10,5,0,5"/>
+                  <TextBox Grid.Row="1" x:Name="CommitMessage" Margin="8,2" TextWrapping="Wrap" AcceptsReturn="True" ToolTip="{ui:Tr '提交说明'}" AutomationProperties.Name="{ui:Tr '提交说明'}" VerticalScrollBarVisibility="Auto"/>
+                  <TextBlock Grid.Row="1" Text="{ui:Tr '提交说明'}" Margin="18,9" VerticalAlignment="Top" Style="{StaticResource FilterHint}" Tag="{Binding Text, ElementName=CommitMessage}"/>
+                </Grid>
+                <WrapPanel Grid.Row="6" Margin="5,2,5,6"><Button Style="{StaticResource FlatButton}" x:Name="CommitSelectedButton" Content="{ui:Tr '提交'}" Click="CommitClick" ToolTip="{ui:Tr '提交勾选文件的工作区内容 · Ctrl+Enter'}" IsEnabled="False"/><Button Style="{StaticResource FlatButton}" x:Name="CommitPushButton" Content="{ui:Tr '提交并推送…'}" Click="CommitPushClick" IsEnabled="False"/></WrapPanel>
               </Grid>
             </ContentControl>
-            <DockPanel x:Name="StructurePane" Visibility="Collapsed"><DockPanel DockPanel.Dock="Top" Height="34"><Button Style="{StaticResource ToolButton}" Click="HideLeftClick" ToolTip="隐藏结构窗口" AutomationProperties.Name="隐藏结构窗口" DockPanel.Dock="Right"><ui:IdeIcon Kind="Minus" /></Button><TextBlock Text="结构" Style="{StaticResource ToolHeader}"/></DockPanel><ListBox x:Name="StructureList" DisplayMemberPath="DisplayName" MouseDoubleClick="StructureOpen"/></DockPanel>
-          </Grid>
+            <DockPanel x:Name="StructurePane" Visibility="Collapsed"><DockPanel DockPanel.Dock="Top" Height="34"><Button Style="{StaticResource ToolButton}" Click="HideLeftClick" ToolTip="{ui:Tr '隐藏结构窗口'}" AutomationProperties.Name="{ui:Tr '隐藏结构窗口'}" DockPanel.Dock="Right"><ui:IdeIcon Kind="Minus" /></Button><TextBlock Text="{ui:Tr '结构'}" Style="{StaticResource ToolHeader}"/></DockPanel><ListBox x:Name="StructureList" MouseDoubleClick="StructureOpen"><ListBox.ItemTemplate><DataTemplate><StackPanel Orientation="Horizontal"><TextBlock Text="{Binding Name}"/><TextBlock Text=" · " Foreground="{StaticResource Muted}"/><TextBlock Text="{ui:TranslateBinding Kind}" Foreground="{StaticResource Muted}"/></StackPanel></DataTemplate></ListBox.ItemTemplate></ListBox></DockPanel>
+          </Grid></Border>
           <GridSplitter Grid.Column="1" ResizeDirection="Columns"/>
-          <Grid Grid.Column="2" Background="{StaticResource Bg}">
+          <Border Grid.Column="2" Background="{StaticResource Bg}" CornerRadius="9" BorderBrush="{StaticResource Stroke}" BorderThickness="1" Margin="2,3,2,0"><Grid Background="{StaticResource Bg}" Margin="1,4,1,1">
             <Grid.RowDefinitions><RowDefinition Height="34"/><RowDefinition/></Grid.RowDefinitions>
             <Border BorderBrush="{StaticResource Stroke}" BorderThickness="0,0,0,1"><ScrollViewer x:Name="TabScroll" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Hidden"><StackPanel x:Name="DocumentTabs" Orientation="Horizontal"/></ScrollViewer></Border>
             <Grid Grid.Row="1">
               <ae:TextEditor x:Name="Editor" PreviewMouseLeftButtonDown="EditorMouseDown"/>
               <StackPanel x:Name="WelcomePane" HorizontalAlignment="Center" VerticalAlignment="Center">
-                <Button Style="{StaticResource FlatButton}" Click="OpenProjectClick" Content="打开项目     Ctrl+O"/>
-                <Button Style="{StaticResource FlatButton}" Click="SearchClick" Content="随处搜索     双击 Shift"/>
+                <Button Style="{StaticResource FlatButton}" Click="OpenProjectClick" Content="{ui:Tr '打开项目     Ctrl+O'}"/>
+                <Button Style="{StaticResource FlatButton}" Click="SearchClick" Content="{ui:Tr '随处搜索     双击 Shift'}"/>
               </StackPanel>
               <Grid x:Name="DiffPane" Visibility="Collapsed" Background="{StaticResource Bg}">
                 <Grid.RowDefinitions><RowDefinition Height="32"/><RowDefinition/></Grid.RowDefinitions>
-                <DockPanel Margin="5,0"><StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><CheckBox x:Name="IgnoreWhitespace" Content="忽略空白" Click="DiffModeClick"/><Button Style="{StaticResource ToolButton}" Click="EditDiffSourceClick" ToolTip="打开工作区文件 · F4" AutomationProperties.Name="打开工作区文件 · F4" ><ui:IdeIcon Kind="File" /></Button></StackPanel><StackPanel Orientation="Horizontal"><Button Style="{StaticResource ToolButton}" Click="PreviousDiffClick" ToolTip="上一处差异 · Shift+F7" AutomationProperties.Name="上一处差异 · Shift+F7" ><ui:IdeIcon Kind="Previous" /></Button><Button Style="{StaticResource ToolButton}" Click="NextDiffClick" ToolTip="下一处差异 · F7" AutomationProperties.Name="下一处差异 · F7" ><ui:IdeIcon Kind="Next" /></Button><TextBlock x:Name="DiffSummary" Foreground="{StaticResource Muted}" Margin="6,0"/></StackPanel></DockPanel>
+                <DockPanel Margin="5,0"><StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><CheckBox x:Name="IgnoreWhitespace" Content="{ui:Tr '忽略空白'}" Click="DiffModeClick"/><Button Style="{StaticResource ToolButton}" Click="EditDiffSourceClick" ToolTip="{ui:Tr '打开工作区文件 · F4'}" AutomationProperties.Name="{ui:Tr '打开工作区文件 · F4'}" ><ui:IdeIcon Kind="File" /></Button></StackPanel><StackPanel Orientation="Horizontal"><Button Style="{StaticResource ToolButton}" Click="PreviousDiffClick" ToolTip="{ui:Tr '上一处差异 · Shift+F7'}" AutomationProperties.Name="{ui:Tr '上一处差异 · Shift+F7'}" ><ui:IdeIcon Kind="Previous" /></Button><Button Style="{StaticResource ToolButton}" Click="NextDiffClick" ToolTip="{ui:Tr '下一处差异 · F7'}" AutomationProperties.Name="{ui:Tr '下一处差异 · F7'}" ><ui:IdeIcon Kind="Next" /></Button><TextBlock x:Name="DiffSummary" Foreground="{StaticResource Muted}" Margin="6,0"/></StackPanel></DockPanel>
                 <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="4"/><ColumnDefinition/></Grid.ColumnDefinitions>
                   <DockPanel><Border DockPanel.Dock="Top" Background="{StaticResource Panel}" Padding="9,5"><TextBlock x:Name="OldLabel" TextTrimming="CharacterEllipsis"/></Border><ae:TextEditor x:Name="OldEditor"/></DockPanel>
                   <GridSplitter Grid.Column="1" ResizeDirection="Columns"/>
@@ -101,58 +105,66 @@
                 </Grid>
               </Grid>
             </Grid>
-          </Grid>
+          </Grid></Border>
           <GridSplitter Grid.Column="3" ResizeDirection="Columns"/>
-          <Grid Grid.Column="4" x:Name="MavenPane" ClipToBounds="True" Visibility="Collapsed">
+          <Border Grid.Column="4" Background="{StaticResource Panel}" CornerRadius="9" BorderBrush="{StaticResource Stroke}" BorderThickness="1" Margin="2,3,3,0"><Grid x:Name="MavenPane" ClipToBounds="True" Visibility="Collapsed" Margin="2">
             <Grid.RowDefinitions><RowDefinition Height="34"/><RowDefinition Height="30"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-            <DockPanel><Button Style="{StaticResource ToolButton}" Click="MavenToolClick" ToolTip="隐藏 Maven" AutomationProperties.Name="隐藏 Maven" DockPanel.Dock="Right"><ui:IdeIcon Kind="Minus" /></Button><TextBlock Text="Maven" Style="{StaticResource ToolHeader}"/></DockPanel>
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="6,0"><Button Style="{StaticResource ToolButton}" Click="RefreshClick" ToolTip="重新读取 POM" AutomationProperties.Name="重新读取 POM" ><ui:IdeIcon Kind="Refresh" /></Button><Button Style="{StaticResource ToolButton}" Click="MavenClick" ToolTip="执行 Maven 任务" AutomationProperties.Name="执行 Maven 任务" ><ui:IdeIcon Kind="Run" /></Button></StackPanel>
-            <ListBox Grid.Row="2" x:Name="MavenList" MouseDoubleClick="MavenDoubleClick" SelectionChanged="MavenSelectionChanged"><ListBox.ItemTemplate><DataTemplate><StackPanel Orientation="Horizontal"><ui:IdeIcon Kind="Maven" Foreground="#83A8ED"/><TextBlock Text="{Binding Artifact}" Margin="6,0"/><TextBlock Text="{Binding Version}" Foreground="{StaticResource Muted}"/></StackPanel></DataTemplate></ListBox.ItemTemplate></ListBox>
+            <DockPanel><Button Style="{StaticResource ToolButton}" Click="MavenToolClick" ToolTip="{ui:Tr '隐藏 Maven'}" AutomationProperties.Name="{ui:Tr '隐藏 Maven'}" DockPanel.Dock="Right"><ui:IdeIcon Kind="Minus" /></Button><TextBlock Text="Maven" Style="{StaticResource ToolHeader}"/></DockPanel>
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="6,0"><Button Style="{StaticResource ToolButton}" Click="RefreshClick" ToolTip="{ui:Tr '重新读取 POM'}" AutomationProperties.Name="{ui:Tr '重新读取 POM'}" ><ui:IdeIcon Kind="Refresh" /></Button><Button Style="{StaticResource ToolButton}" Click="MavenClick" ToolTip="{ui:Tr '执行 Maven 任务'}" AutomationProperties.Name="{ui:Tr '执行 Maven 任务'}" ><ui:IdeIcon Kind="Run" /></Button></StackPanel>
+            <TreeView Grid.Row="2" x:Name="MavenList" MouseDoubleClick="MavenDoubleClick" SelectedItemChanged="MavenSelectionChanged" ToolTip="{ui:Tr '双击生命周期任务运行；双击模块打开 POM'}"/>
             <TextBox Grid.Row="3" x:Name="MavenDetails" IsReadOnly="True" BorderThickness="0,1,0,0" TextWrapping="Wrap" MaxHeight="200" VerticalScrollBarVisibility="Auto"/>
-          </Grid>
+          </Grid></Border>
         </Grid>
         <GridSplitter Grid.Row="1" ResizeDirection="Rows" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
-        <Grid Grid.Row="2" x:Name="BottomPane" Visibility="Collapsed" ClipToBounds="True">
+        <Border Grid.Row="2" Background="{StaticResource Panel}" CornerRadius="9" BorderBrush="{StaticResource Stroke}" BorderThickness="1" Margin="3,1,2,2"><Grid x:Name="BottomPane" Visibility="Collapsed" ClipToBounds="True" Margin="3">
           <Grid.RowDefinitions><RowDefinition Height="34"/><RowDefinition/></Grid.RowDefinitions>
           <DockPanel>
-            <StackPanel Orientation="Horizontal" DockPanel.Dock="Right"><Button Style="{StaticResource ToolButton}" Click="BottomRefreshClick" ToolTip="刷新活动工具窗口" AutomationProperties.Name="刷新活动工具窗口" ><ui:IdeIcon Kind="Refresh" /></Button><Button Style="{StaticResource ToolButton}" Click="HideBottomClick" ToolTip="隐藏底部工具窗口" AutomationProperties.Name="隐藏底部工具窗口" ><ui:IdeIcon Kind="Minus" /></Button></StackPanel>
+            <StackPanel Orientation="Horizontal" DockPanel.Dock="Right"><Button Style="{StaticResource ToolButton}" Click="BottomRefreshClick" ToolTip="{ui:Tr '刷新活动工具窗口'}" AutomationProperties.Name="{ui:Tr '刷新活动工具窗口'}" ><ui:IdeIcon Kind="Refresh" /></Button><Button Style="{StaticResource ToolButton}" Click="HideBottomClick" ToolTip="{ui:Tr '隐藏底部工具窗口'}" AutomationProperties.Name="{ui:Tr '隐藏底部工具窗口'}" ><ui:IdeIcon Kind="Minus" /></Button></StackPanel>
             <StackPanel Orientation="Horizontal"><TextBlock x:Name="BottomTitle" Style="{StaticResource ToolHeader}" Text="Git"/>
-              <Button x:Name="LogTab" Content="日志" Style="{StaticResource DockTab}" Click="LogTabClick"/>
-              <Button x:Name="LocalTab" Content="本地更改" Style="{StaticResource DockTab}" Click="LocalTabClick" Visibility="Collapsed"/>
-              <Button x:Name="ConsoleTab" Content="控制台" Style="{StaticResource DockTab}" Click="ConsoleTabClick"/>
+              <Button x:Name="LogTab" Content="{ui:Tr '日志'}" Style="{StaticResource DockTab}" Click="LogTabClick"/>
+              <Button x:Name="LocalTab" Content="{ui:Tr '本地更改'}" Style="{StaticResource DockTab}" Click="LocalTabClick" Visibility="Collapsed"/>
+              <Button x:Name="ConsoleTab" Content="{ui:Tr '控制台'}" Style="{StaticResource DockTab}" Click="ConsoleTabClick"/>
               <TextBlock x:Name="OutputTitle" Foreground="{StaticResource Muted}" TextTrimming="CharacterEllipsis" MaxWidth="480" Margin="5,0"/>
             </StackPanel>
           </DockPanel>
           <Grid Grid.Row="1" x:Name="LogPane" Background="{StaticResource Bg}">
             <Grid.ColumnDefinitions><ColumnDefinition Width="197" MinWidth="95"/><ColumnDefinition Width="4"/><ColumnDefinition Width="*"/><ColumnDefinition Width="4"/><ColumnDefinition Width="255" MinWidth="130"/></Grid.ColumnDefinitions>
-            <DockPanel><Grid DockPanel.Dock="Top"><TextBox x:Name="RefFilter" Margin="5,3" ToolTip="筛选分支或标签" TextChanged="RefFilterChanged" AutomationProperties.Name="筛选分支或标签"/><TextBlock Text="分支或标签" Style="{StaticResource FilterHint}" Tag="{Binding Text, ElementName=RefFilter}"/></Grid><TreeView x:Name="LogRefs" SelectedItemChanged="LogRefSelected" Margin="3,1"/></DockPanel>
+            <DockPanel><Grid DockPanel.Dock="Top"><TextBox x:Name="RefFilter" Style="{StaticResource SearchField}" Margin="5,3" ToolTip="{ui:Tr '筛选分支或标签'}" TextChanged="RefFilterChanged" AutomationProperties.Name="{ui:Tr '筛选分支或标签'}"/><TextBlock Text="{ui:Tr '分支或标签'}" Style="{StaticResource FilterHint}" Tag="{Binding Text, ElementName=RefFilter}"/></Grid><TreeView x:Name="LogRefs" SelectedItemChanged="LogRefSelected" Margin="3,1"/></DockPanel>
             <GridSplitter Grid.Column="1" ResizeDirection="Columns"/>
-            <DockPanel Grid.Column="2"><DockPanel DockPanel.Dock="Top" Height="32"><Button Style="{StaticResource ToolButton}" Click="HistoryClick" ToolTip="刷新日志" AutomationProperties.Name="刷新日志" DockPanel.Dock="Right"><ui:IdeIcon Kind="Refresh" /></Button><Grid><TextBox x:Name="LogFilter" Margin="5,3" ToolTip="搜索提交信息、作者或哈希" AutomationProperties.Name="搜索日志" TextChanged="LogFilterChanged"/><TextBlock Text="提交信息或哈希" Tag="{Binding Text, ElementName=LogFilter}" Style="{StaticResource FilterHint}"/></Grid></DockPanel>
+            <DockPanel Grid.Column="2"><DockPanel DockPanel.Dock="Top" Height="32"><Button Style="{StaticResource ToolButton}" Click="HistoryClick" ToolTip="{ui:Tr '刷新日志'}" AutomationProperties.Name="{ui:Tr '刷新日志'}" DockPanel.Dock="Right"><ui:IdeIcon Kind="Refresh" /></Button><Grid><TextBox x:Name="LogFilter" Style="{StaticResource SearchField}" Margin="5,3" ToolTip="{ui:Tr '搜索提交信息、作者或哈希'}" AutomationProperties.Name="{ui:Tr '搜索日志'}" TextChanged="LogFilterChanged"/><TextBlock Text="{ui:Tr '提交信息或哈希'}" Tag="{Binding Text, ElementName=LogFilter}" Style="{StaticResource FilterHint}"/></Grid></DockPanel>
               <Grid><ListBox x:Name="LogList" ItemContainerStyle="{StaticResource CompactRow}" SelectionChanged="LogSelectionChanged" MouseDoubleClick="LogDoubleClick">
-                <ListBox.ItemTemplate><DataTemplate><Grid Height="24" ToolTip="{Binding Revision.Subject}"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="80"/><ColumnDefinition Width="74"/></Grid.ColumnDefinitions>
-                  <ui:CommitGraph Width="{Binding GraphWidth}"/><TextBlock Grid.Column="1" Text="{Binding Revision.Subject}" TextTrimming="CharacterEllipsis" Margin="3,0"/>
-                  <TextBlock Grid.Column="2" Text="{Binding Revision.References}" TextTrimming="CharacterEllipsis" Foreground="#A3C894" MaxWidth="110" FontSize="11" Margin="4,0"/>
-                  <TextBlock Grid.Column="3" Text="{Binding Revision.DisplayDate}" Foreground="{StaticResource Muted}" FontSize="11" Margin="4,0"/>
-                  <TextBlock Grid.Column="4" Text="{Binding Revision.Author}" Foreground="{StaticResource Muted}" TextTrimming="CharacterEllipsis" FontSize="11" Margin="4,0"/>
+                <ListBox.ItemTemplate><DataTemplate><Grid Height="27" ToolTip="{Binding Revision.Subject}"><Grid.ColumnDefinitions><ColumnDefinition Width="85"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="86"/></Grid.ColumnDefinitions>
+                  <TextBlock Text="{Binding Revision.Author}" Foreground="{StaticResource Muted}" TextTrimming="CharacterEllipsis" FontSize="12" Margin="4,0"/>
+                  <ui:CommitGraph Grid.Column="1" Width="{Binding GraphWidth}"/><TextBlock Grid.Column="2" Text="{Binding Revision.Subject}" TextTrimming="CharacterEllipsis" Margin="3,0"/>
+                  <TextBlock Grid.Column="3" Text="{Binding Revision.References}" TextTrimming="CharacterEllipsis" Foreground="#A3C894" MaxWidth="150" FontSize="11" Margin="4,0"/>
+                  <TextBlock Grid.Column="4" Text="{Binding Revision.DisplayDate}" Foreground="{StaticResource Muted}" FontSize="11" Margin="4,0"/>
                 </Grid></DataTemplate></ListBox.ItemTemplate>
               </ListBox><TextBlock x:Name="LogHint" HorizontalAlignment="Center" Foreground="{StaticResource Muted}" IsHitTestVisible="False"/></Grid>
             </DockPanel>
             <GridSplitter Grid.Column="3" ResizeDirection="Columns"/>
             <Grid Grid.Column="4"><Grid.RowDefinitions><RowDefinition Height="3*"/><RowDefinition Height="4"/><RowDefinition Height="2*"/></Grid.RowDefinitions>
-              <DockPanel><DockPanel DockPanel.Dock="Top" Height="29"><Button Style="{StaticResource ToolButton}" Click="HistoryFileDiffClick" ToolTip="显示文件差异 · Ctrl+D" AutomationProperties.Name="显示文件差异 · Ctrl+D" DockPanel.Dock="Right"><ui:IdeIcon Kind="Diff" /></Button><TextBlock x:Name="HistoryFilesTitle" Text="更改的文件" Margin="8,0"/></DockPanel><TreeView x:Name="HistoryFiles" Margin="3,0" MouseDoubleClick="HistoryFileDoubleClick"/></DockPanel>
+              <DockPanel><DockPanel DockPanel.Dock="Top" Height="29"><Button Style="{StaticResource ToolButton}" Click="HistoryFileDiffClick" ToolTip="{ui:Tr '显示文件差异 · Ctrl+D'}" AutomationProperties.Name="{ui:Tr '显示文件差异 · Ctrl+D'}" DockPanel.Dock="Right"><ui:IdeIcon Kind="Diff" /></Button><TextBlock x:Name="HistoryFilesTitle" Text="{ui:Tr '更改的文件'}" Margin="8,0"/></DockPanel><TreeView x:Name="HistoryFiles" Margin="3,0" MouseDoubleClick="HistoryFileDoubleClick"/></DockPanel>
               <GridSplitter Grid.Row="1" ResizeDirection="Rows" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
-              <TextBox Grid.Row="2" x:Name="RevisionDetails" IsReadOnly="True" BorderThickness="0" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="提交详情"/>
+              <TextBox Grid.Row="2" x:Name="RevisionDetails" IsReadOnly="True" BorderThickness="0" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="{ui:Tr '提交详情'}"/>
             </Grid>
           </Grid>
           <ContentControl Grid.Row="1" x:Name="BottomCommitHost" Visibility="Collapsed"/>
-          <ListBox Grid.Row="1" x:Name="SpringList" Visibility="Collapsed" MouseDoubleClick="SpringDoubleClick"><ListBox.ItemTemplate><DataTemplate><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="120"/><ColumnDefinition Width="240"/><ColumnDefinition/></Grid.ColumnDefinitions><TextBlock Text="{Binding Kind}" Foreground="#8DB597"/><TextBlock Grid.Column="1" Text="{Binding Name}"/><TextBlock Grid.Column="2" Text="{Binding Location}" Foreground="{StaticResource Muted}" TextTrimming="CharacterEllipsis"/></Grid></DataTemplate></ListBox.ItemTemplate></ListBox>
-          <DockPanel Grid.Row="1" x:Name="OutputPanel" Visibility="Collapsed"><Button DockPanel.Dock="Top" HorizontalAlignment="Left" Content="停止运行" Click="CancelCommandClick"/><ae:TextEditor x:Name="OutputEditor"/></DockPanel>
-        </Grid>
+          <ListBox Grid.Row="1" x:Name="SpringList" Visibility="Collapsed" MouseDoubleClick="SpringDoubleClick"><ListBox.ItemTemplate><DataTemplate><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="120"/><ColumnDefinition Width="240"/><ColumnDefinition/></Grid.ColumnDefinitions><TextBlock Text="{ui:TranslateBinding Kind}" Foreground="#8DB597"/><TextBlock Grid.Column="1" Text="{Binding Name}"/><TextBlock Grid.Column="2" Text="{Binding Location}" Foreground="{StaticResource Muted}" TextTrimming="CharacterEllipsis"/></Grid></DataTemplate></ListBox.ItemTemplate></ListBox>
+          <Grid Grid.Row="1" x:Name="OutputPanel" Visibility="Collapsed">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="34"/><ColumnDefinition Width="260"/><ColumnDefinition Width="4"/><ColumnDefinition/></Grid.ColumnDefinitions>
+            <Grid.RowDefinitions><RowDefinition Height="3"/><RowDefinition/></Grid.RowDefinitions>
+            <ProgressBar x:Name="BuildProgress" Grid.ColumnSpan="4" Height="2" Visibility="Collapsed" Foreground="#57965C" Background="Transparent"/>
+            <StackPanel Grid.Row="1"><Button x:Name="CancelBuildButton" Style="{StaticResource ToolButton}" ToolTip="{ui:Tr '停止运行'}" AutomationProperties.Name="{ui:Tr '停止运行'}" Click="CancelCommandClick" IsEnabled="False"><ui:IdeIcon Kind="Stop" Foreground="#DB5C5C"/></Button><Button Style="{StaticResource ToolButton}" Click="ClearOutputClick" ToolTip="{ui:Tr '清空输出'}"><ui:IdeIcon Kind="Delete"/></Button></StackPanel>
+            <DockPanel Grid.Row="1" Grid.Column="1" Margin="5,8"><StackPanel DockPanel.Dock="Top"><TextBlock x:Name="BuildResult" Text="{ui:Tr '控制台'}" FontWeight="SemiBold"/><TextBlock x:Name="BuildElapsed" Foreground="{StaticResource Muted}" Margin="0,5"/></StackPanel><CheckBox DockPanel.Dock="Bottom" x:Name="FollowOutput" Content="{ui:Tr '跟随输出'}" IsChecked="True" Margin="0,8"/><TreeView x:Name="BuildTree" MouseDoubleClick="BuildIssueDoubleClick" ToolTip="{ui:Tr '双击编译错误可跳转到源码行'}"/></DockPanel>
+            <GridSplitter Grid.Row="1" Grid.Column="2" ResizeDirection="Columns"/>
+            <ae:TextEditor Grid.Row="1" Grid.Column="3" x:Name="OutputEditor"/>
+          </Grid>
+        </Grid></Border>
       </Grid>
     </Grid>
     <Border Grid.Row="2" BorderThickness="0,1,0,0" BorderBrush="{StaticResource Stroke}">
       <Grid Margin="5,0,9,0"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-        <Button Style="{StaticResource FlatButton}" Click="SelectCurrentClick" Margin="0" Padding="4,0" ToolTip="在项目树中定位 · Alt+Home"><TextBlock x:Name="Breadcrumb" Text="Idea Lite" MaxWidth="460" TextTrimming="CharacterEllipsis" Foreground="{StaticResource Muted}"/></Button>
+        <Button Style="{StaticResource FlatButton}" Click="SelectCurrentClick" Margin="0" Padding="4,0" ToolTip="{ui:Tr '在项目树中定位 · Alt+Home'}"><TextBlock x:Name="Breadcrumb" Text="Idea Lite" MaxWidth="460" TextTrimming="CharacterEllipsis" Foreground="{StaticResource Muted}"/></Button>
         <TextBlock Grid.Column="1" x:Name="StatusLabel" FontSize="11" Foreground="{StaticResource Muted}" TextTrimming="CharacterEllipsis" Margin="10,0"/>
         <TextBlock Grid.Column="2" x:Name="CaretLabel" Foreground="{StaticResource Muted}" FontSize="11" Margin="8,0"/><TextBlock Grid.Column="3" x:Name="MemoryLabel" Foreground="{StaticResource Muted}" FontSize="11" Margin="6,0"/>
       </Grid>
