@@ -53,6 +53,7 @@ internal static class Program
             finally { UiText.Current.Language = "en"; }
         }
         EditorVisualChecks.Run(Check, Pump);
+        TerminalChecks.Run(Check, Pump);
         AiUiChecks.Run(Check, Pump);
         Check("Translation templates preserve placeholders and user data in both languages", () =>
         {

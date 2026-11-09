@@ -62,11 +62,12 @@ public partial class MainWindow
         MavenPane.Visibility = Visible(right);
         BottomPane.Visibility = Visible(bottom);
         bool git = _bottom is BottomTool.Log or BottomTool.Console or BottomTool.LocalChanges;
-        UiText.Set(BottomTitle, "Text", git ? "Git" : _bottom == BottomTool.Services ? "服务" : "构建");
+        UiText.Set(BottomTitle, "Text", git ? "Git" : _bottom == BottomTool.Terminal ? "终端" : _bottom == BottomTool.Services ? "服务" : "构建");
         LogTab.Visibility = ConsoleTab.Visibility = Visible(git);
         LocalTab.Visibility = Visible(git && _layout.BottomCommit);
         LogPane.Visibility = Visible(_bottom == BottomTool.Log);
         OutputPanel.Visibility = Visible(_bottom is BottomTool.Console or BottomTool.Run);
+        TerminalPane.Visibility = TerminalTabScroll.Visibility = AddTerminalButton.Visibility = Visible(_bottom == BottomTool.Terminal);
         OutputTitle.Visibility = OutputPanel.Visibility;
         SpringList.Visibility = Visible(_bottom == BottomTool.Services);
         BottomCommitHost.Visibility = Visible(_bottom == BottomTool.LocalChanges && _layout.BottomCommit);
@@ -76,6 +77,7 @@ public partial class MainWindow
         GitRail.Tag = bottom && git ? "active" : null;
         ServicesRail.Tag = bottom && _bottom == BottomTool.Services ? "active" : null;
         OutputRail.Tag = bottom && _bottom == BottomTool.Run ? "active" : null;
+        TerminalRail.Tag = bottom && _bottom == BottomTool.Terminal ? "active" : null;
         MavenRail.Tag = right ? "active" : null;
         LogTab.Tag = _bottom == BottomTool.Log ? "active" : null;
         ConsoleTab.Tag = _bottom == BottomTool.Console ? "active" : null;

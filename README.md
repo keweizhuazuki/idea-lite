@@ -38,6 +38,7 @@ Idea Lite 就是为这个场景做的：一个 Windows 原生的代码编辑器�
 - AI 根据勾选文件相对于 HEAD 的工作区差异生成说明，包含新文件、删除和重命名；Amend 同时提供原提交内容。生成时会向所选服务商发送这些差异、分支和现有说明，单次最多 100 个文件、16,000 字符的差异上下文，按文件分配预算，大文件/二进制省略内容并明确标记。草稿最多 1,000 字符，分支最多 256 字符，输出上限 256 tokens；只进行一次生成请求，不扫描全仓库或开启多轮代理。中文上下文保留原文，不额外转为 Unicode 转义。完成后在状态栏显示服务商返回的真实输入/输出 token 数（若响应缺失 usage 则不虚构用量）；字符上限不等于精确 token 上限。
 - 分支或草稿中的 AIDF/AIGC 任务号会保留，格式为 `<任务号> <类型> <摘要>`，不自动提交。再次点击取消；请求中修改说明会先展示结果供确认，项目、选择或文件变化则拒绝回填旧结果。保存勾选文件后再生成。
 - AI Commit Settings 中可查看、编辑并保存完整内置提示词，OpenAI 和 DeepSeek 共用这份设置；恢复默认只修改当前编辑框，保存后生效，取消则放弃编辑。预览会显示按当前分支、现有说明和输出语言展开后的 system 提示词，不调用 API。变量支持 `{task_rule}`、`{task_id}`、`{language_rule}`、`{language}`，其他大括号（如 JSON 示例）原样保留，提示词最多 4,000 字符。任务号由本地按“现有说明优先，其次分支名”匹配 AIDF/AIGC 格式，并非写死某个编号；删除 `{task_rule}` 可取消自动前缀要求。
+- Alt+F12 在底部打开内置 Git Bash，`+` 可创建多个独立会话，标签可切换和关闭，保留各自的工作目录和历史命令。终端使用系统 ConPTY 与原生 Windows Terminal 控件，支持 ANSI 颜色、中文、交互输入、复制粘贴和 Ctrl+C；关闭会话或窗口会结束对应子进程。
 
 布局参考 JetBrains 的 [IDEA 界面](https://www.jetbrains.com/help/idea/guided-tour-around-the-user-interface.html)、[提交窗口](https://www.jetbrains.com/help/idea/commit-and-push-changes.html)和 [Git 日志](https://www.jetbrains.com/help/idea/log-tab.html)。图标与界面代码由本项目绘制和实现。
 

@@ -271,15 +271,9 @@ public partial class MainWindow
     private void OpenTerminal()
     {
         if (_workspace == null) return;
-        try { Process.Start(ProjectTerminalStartInfo(_workspace.Root)); }
-        catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception) { Dialogs.Error(this, error); }
-    }
-
-    internal static ProcessStartInfo ProjectTerminalStartInfo(string root)
-    {
-        var executable = GitService.GitBashExecutablePath ?? throw new InvalidOperationException("未找到 Git Bash，请安装 Git for Windows 后重试。");
-        var info = new ProcessStartInfo(executable) { UseShellExecute = true, WorkingDirectory = root };
-        info.ArgumentList.Add("--cd=" + root); return info;
+        RememberSizes(); _bottom = BottomTool.Terminal; _focusMode = false; ApplyLayout();
+        if (_terminals.Count == 0) AddTerminal();
+        else _activeTerminal?.View.Focus();
     }
 
     private async void MavenClick(object sender, RoutedEventArgs e) => await Guard(async () =>

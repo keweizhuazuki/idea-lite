@@ -409,5 +409,15 @@
   "暂存所选": "Stage Selected",
   "{0}…": "{0}…",
   "待解决冲突": "Unresolved Conflicts",
-  "Alt+1  项目      Alt+0 / Ctrl+K  提交      Alt+9  Git 日志\nAlt+7  结构      Alt+8  服务      Alt+4  运行输出\n双击 Shift  随处搜索      Ctrl+Shift+A  查找操作\nCtrl+N  类      Ctrl+Shift+N  文件      Ctrl+Alt+Shift+N  符号\nCtrl+Shift+F  项目文本      Ctrl+F  当前文件查找\nCtrl+D  在改动列表查看 Diff，在编辑器复制行\nF4  打开工作区文件      F7 / Shift+F7  下一个 / 上一个差异\nCtrl+B / Ctrl+单击  定义      Ctrl+Alt+Left  返回\nCtrl+Alt+A  暂存所选      Ctrl+Enter  提交勾选文件\nCtrl+Shift+K  推送      Ctrl+Shift+F12  隐藏或恢复工具窗口\nCtrl+S  保存      Ctrl+Alt+L  匹配缩进      Ctrl+W  关闭标签": "Alt+1  Project      Alt+0 / Ctrl+K  Commit      Alt+9  Git Log\nAlt+7  Structure      Alt+8  Services      Alt+4  Build Output\nDouble Shift  Search Everywhere      Ctrl+Shift+A  Find Action\nCtrl+N  Class      Ctrl+Shift+N  File      Ctrl+Alt+Shift+N  Symbol\nCtrl+Shift+F  Find in Files      Ctrl+F  Find in File\nCtrl+D  Show Diff in Changes; duplicate line in editor\nF4  Open Working Tree File      F7 / Shift+F7  Next / Previous Difference\nCtrl+B / Ctrl+Click  Go to Definition      Ctrl+Alt+Left  Back\nCtrl+Alt+A  Stage Selected      Ctrl+Enter  Commit Selected\nCtrl+Shift+K  Push      Ctrl+Shift+F12  Hide / Restore Tool Windows\nCtrl+S  Save      Ctrl+Alt+L  Match Indentation      Ctrl+W  Close Tab"
+  "Alt+1  项目      Alt+0 / Ctrl+K  提交      Alt+9  Git 日志\nAlt+7  结构      Alt+8  服务      Alt+4  运行输出\n双击 Shift  随处搜索      Ctrl+Shift+A  查找操作\nCtrl+N  类      Ctrl+Shift+N  文件      Ctrl+Alt+Shift+N  符号\nCtrl+Shift+F  项目文本      Ctrl+F  当前文件查找\nCtrl+D  在改动列表查看 Diff，在编辑器复制行\nF4  打开工作区文件      F7 / Shift+F7  下一个 / 上一个差异\nCtrl+B / Ctrl+单击  定义      Ctrl+Alt+Left  返回\nCtrl+Alt+A  暂存所选      Ctrl+Enter  提交勾选文件\nCtrl+Shift+K  推送      Ctrl+Shift+F12  隐藏或恢复工具窗口\nCtrl+S  保存      Ctrl+Alt+L  匹配缩进      Ctrl+W  关闭标签": "Alt+1  Project      Alt+0 / Ctrl+K  Commit      Alt+9  Git Log\nAlt+7  Structure      Alt+8  Services      Alt+4  Build Output\nDouble Shift  Search Everywhere      Ctrl+Shift+A  Find Action\nCtrl+N  Class      Ctrl+Shift+N  File      Ctrl+Alt+Shift+N  Symbol\nCtrl+Shift+F  Find in Files      Ctrl+F  Find in File\nCtrl+D  Show Diff in Changes; duplicate line in editor\nF4  Open Working Tree File      F7 / Shift+F7  Next / Previous Difference\nCtrl+B / Ctrl+Click  Go to Definition      Ctrl+Alt+Left  Back\nCtrl+Alt+A  Stage Selected      Ctrl+Enter  Commit Selected\nCtrl+Shift+K  Push      Ctrl+Shift+F12  Hide / Restore Tool Windows\nCtrl+S  Save      Ctrl+Alt+L  Match Indentation      Ctrl+W  Close Tab",
+  "终端": "Terminal",
+  "新建终端 · Ctrl+Shift+T": "New Terminal \u00b7 Ctrl+Shift+T",
+  "关闭终端": "Close Terminal",
+  "已退出": "Exited",
+  "新建终端": "New Terminal",
+  "粘贴": "Paste",
+  "剪贴板暂时不可用，请重试。": "Clipboard is temporarily unavailable. Please retry.",
+  "复制": "Copy",
+  "本地": "Local",
+  "本地 {0}": "Local {0}"
 }

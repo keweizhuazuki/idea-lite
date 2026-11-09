@@ -5,7 +5,7 @@ using IdeaLite.Core;
 namespace IdeaLite;
 
 public enum LeftTool { None, Project, Commit, Structure }
-public enum BottomTool { None, Log, Console, LocalChanges, Services, Run }
+public enum BottomTool { None, Log, Console, LocalChanges, Services, Run, Terminal }
 
 public sealed class WorkbenchLayout
 {

@@ -74,6 +74,7 @@ public partial class MainWindow : Window
             }
         };
         _diffScroll = new DiffScrollSynchronizer(OldEditor, NewEditor);
+        InitializeTerminalInput();
         Editor.IsReadOnly = true;
         InitializeWorkbench();
         _layout.Language = UiText.Current.Language;
@@ -140,6 +141,7 @@ public partial class MainWindow : Window
         RenderProjectTree();
         PopulateMavenTree(); SpringList.ItemsSource = snapshot.Spring;
         RunConfigButton.IsEnabled = RunButton.IsEnabled = snapshot.Maven.Count > 0;
+        if (_bottom == BottomTool.Terminal && _terminals.Count == 0) AddTerminal();
         UiText.Set(BranchLabel, "Text", git == null ? gitIssue == null ? "Git" : "Git 不可用" : "…");
         BranchButton.ToolTip = gitIssue ?? GitService.ExecutablePath;
         UiText.Set(GitSummary, "Text", git == null ? gitIssue ?? "当前目录没有 Git 仓库" : "");
@@ -397,6 +399,11 @@ public partial class MainWindow : Window
         if (key is Key.LeftShift or Key.RightShift) { if (!e.IsRepeat) _shiftOnly = true; return; }
         _shiftOnly = false; _lastShift = default;
         var modifiers = Keyboard.Modifiers;
+        if (TerminalPane.IsKeyboardFocusWithin)
+        {
+            e.Handled = HandleTerminalShortcut(key, modifiers);
+            return;
+        }
         var ctrl = ModifierKeys.Control;
         var alt = ModifierKeys.Alt;
         var shift = ModifierKeys.Shift;
@@ -591,6 +598,7 @@ public partial class MainWindow : Window
         if (_commandBusy && !Dialogs.Confirm(this, "仍有 Git / Maven 命令运行中，关闭会停止该命令。是否继续？")) { e.Cancel = true; return; }
         RememberSizes(); _layout.Save();
         _command?.Cancel(); _workspaceLoad?.Cancel(); _diffLoad?.Cancel(); _historyLoad?.Cancel(); _detailLoad?.Cancel(); _memoryTimer.Stop(); _outputTimer.Stop();
+        CloseTerminals();
     }
 
     private async void OpenProjectClick(object sender, RoutedEventArgs e) => await Guard(ChooseProjectAsync);

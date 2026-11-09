@@ -130,6 +130,8 @@
               <Button x:Name="LogTab" Content="{ui:Tr '日志'}" Style="{StaticResource DockTab}" Click="LogTabClick"/>
               <Button x:Name="LocalTab" Content="{ui:Tr '本地更改'}" Style="{StaticResource DockTab}" Click="LocalTabClick" Visibility="Collapsed"/>
               <Button x:Name="ConsoleTab" Content="{ui:Tr '控制台'}" Style="{StaticResource DockTab}" Click="ConsoleTabClick"/>
+              <ScrollViewer x:Name="TerminalTabScroll" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" MaxWidth="650" Visibility="Collapsed"><StackPanel x:Name="TerminalTabs" Orientation="Horizontal"/></ScrollViewer>
+              <Button x:Name="AddTerminalButton" Style="{StaticResource ToolButton}" Click="AddTerminalClick" Visibility="Collapsed" ToolTip="{ui:Tr '新建终端 · Ctrl+Shift+T'}"><ui:IdeIcon Kind="Plus"/></Button>
               <TextBlock x:Name="OutputTitle" Foreground="{StaticResource Muted}" TextTrimming="CharacterEllipsis" MaxWidth="480" Margin="5,0"/>
             </StackPanel>
           </DockPanel>
@@ -155,6 +157,7 @@
             </Grid>
           </Grid>
           <ContentControl Grid.Row="1" x:Name="BottomCommitHost" Visibility="Collapsed"/>
+          <Grid Grid.Row="1" x:Name="TerminalPane" Background="{StaticResource Bg}" Visibility="Collapsed" Margin="5,2"/>
           <ListBox Grid.Row="1" x:Name="SpringList" Visibility="Collapsed" MouseDoubleClick="SpringDoubleClick"><ListBox.ItemTemplate><DataTemplate><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="120"/><ColumnDefinition Width="240"/><ColumnDefinition/></Grid.ColumnDefinitions><TextBlock Text="{ui:TranslateBinding Kind}" Foreground="#8DB597"/><TextBlock Grid.Column="1" Text="{Binding Name}"/><TextBlock Grid.Column="2" Text="{Binding Location}" Foreground="{StaticResource Muted}" TextTrimming="CharacterEllipsis"/></Grid></DataTemplate></ListBox.ItemTemplate></ListBox>
           <Grid Grid.Row="1" x:Name="OutputPanel" Visibility="Collapsed">
             <Grid.ColumnDefinitions><ColumnDefinition Width="34"/><ColumnDefinition Width="260"/><ColumnDefinition Width="4"/><ColumnDefinition/></Grid.ColumnDefinitions>

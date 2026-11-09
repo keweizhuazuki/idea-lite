@@ -121,7 +121,7 @@ internal static class EditorVisualChecks
             }
             finally { owner.Close(); RemoveFixture(fixture.Root); }
         });
-        check("Tooltips use a dark surface and project terminals target Git Bash with a literal directory", () =>
+        check("Tooltips use a dark surface and embedded Git Bash preserves a literal working directory", () =>
         {
             var owner = new Window { Width = 240, Height = 140 }; var button = new Button { Content = "Terminal" }; owner.Content = button; owner.Show(); pump();
             var tip = new ToolTip { Content = "Open Project Terminal · Alt+F12", PlacementTarget = button };
@@ -130,9 +130,9 @@ internal static class EditorVisualChecks
                 tip.IsOpen = true; pump();
                 Require(((SolidColorBrush)tip.Background).Color.ToString() == "#FF2B2D30" && ((SolidColorBrush)tip.Foreground).Color.ToString() == "#FFDFE1E5", "Tooltip foreground/background contrast is wrong");
                 const string root = @"D:\dev\code\space & quote' 项目";
-                var info = (System.Diagnostics.ProcessStartInfo)typeof(MainWindow).GetMethod("ProjectTerminalStartInfo", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [root])!;
-                Require(Path.GetFileName(info.FileName).Equals("git-bash.exe", StringComparison.OrdinalIgnoreCase) && File.Exists(info.FileName), "Terminal is not Git Bash");
-                Require(info.WorkingDirectory == root && info.ArgumentList.SequenceEqual(new[] { "--cd=" + root }), "Terminal directory was converted into a shell script");
+                var info = ((string CommandLine, string Directory))typeof(MainWindow).GetMethod("EmbeddedTerminalCommand", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [root])!;
+                Require(info.CommandLine.Contains(@"\bin\bash.exe", StringComparison.OrdinalIgnoreCase), "Terminal is not Git Bash");
+                Require(info.Directory == root && !info.CommandLine.Contains(root), "Terminal directory was converted into a shell script");
             }
             finally { tip.IsOpen = false; owner.Close(); }
         });
