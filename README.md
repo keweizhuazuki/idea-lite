@@ -45,7 +45,7 @@ Idea Lite 就是为这个场景做的：一个 Windows 原生的代码编辑器�
 - Ctrl+单击显式导入的 Java 类型时，也可以查看直接 Maven 依赖的本地 `-sources.jar`。优先使用构建设置中的本地仓库，然后检查用户目录下的 `.m2/repository`。依赖源码以只读窗口打开。
 - 打开项目与最近项目始终启动新的 Idea Lite 进程，当前窗口及未保存内容继续保留。项目树同级目录保持固定缩进；文件、改动、搜索结果及编译错误支持单击打开。按住 Ctrl 悬停在可解析的项目源码符号上会显示下划线和手形光标，Ctrl+单击跳转定义。
 - Search Everywhere 打开前检查项目文件列表，外部新增的未跟踪文件可直接搜索，并沿用 Git 忽略规则；没有文件增删时复用已有索引。点击搜索窗口外、切换应用或按 Esc 均可关闭。
-- Alt+F12 在底部打开内置 Git Bash，`+` 可创建多个独立会话，标签可切换和关闭，保留各自的工作目录和历史命令。终端使用系统 ConPTY 与原生 Windows Terminal 控件，支持 ANSI 颜色、中文、交互输入、复制粘贴和 Ctrl+C；关闭会话或窗口会结束对应子进程。
+- Alt+F12 在底部打开内置 Git Bash，`+` 可创建多个独立会话，标签可切换和关闭，保留各自的工作目录和历史命令。终端使用系统 ConPTY 与原生 Windows Terminal 控件，支持 ANSI 颜色、中文、交互输入、复制粘贴和 Ctrl+C；关闭会话或窗口会结束对应子进程。勾选 Amend last commit 自动填入上一笔提交的完整说明，取消时恢复未改动的原草稿。
 
 布局参考 JetBrains 的 [IDEA 界面](https://www.jetbrains.com/help/idea/guided-tour-around-the-user-interface.html)、[提交窗口](https://www.jetbrains.com/help/idea/commit-and-push-changes.html)和 [Git 日志](https://www.jetbrains.com/help/idea/log-tab.html)。图标与界面代码由本项目绘制和实现。
 
@@ -203,7 +203,7 @@ dotnet run --project src/IdeaLite -- 'D:\code\your-project'
 
 核心行为/集成测试覆盖真实 Git 仓库中的暂存/未暂存、首次提交、中文和带空格路径、重命名删除、合并冲突、stash、本地远程推拉，以及编码、风格、搜索、外部修改保护、进程超时、实时输出、Windows 原生项目路径、Maven 命令参数传递和按文件提交范围保护。自动 WPF 检查使用临时命令脚本模拟构建，不运行实际 Maven；窗口检查会短暂显示测试窗口。测试不访问外部 Git 服务，失败会保留临时现场。
 
-当前源码在安装了 Git for Windows 的 Windows 上执行 41 项核心检查，以及 30 项 WPF 检查；额外传入 `--with-wsl --keep` 执行 3 项 WSL 参数传递、进程组停止和超时检查。`--keep` 保留临时现场，避免 WSL 刚退出时目录句柄释放的延迟影响清理。WPF 检查还覆盖 Java 分色、真实字体字形来源与行距、项目树层级和导航、细滚动条、Diff 总览跳转与字符级高亮、编辑改动色条、单击导航、Ctrl 悬停、非模态搜索，以及原生 Git Bash 多会话、中文与 ANSI、历史命令、Ctrl+C、缩放、进程清理和括号粘贴。既有构建、双语、Windows 凭据与 AI 生成回归仍保留。AI 接口测试使用本地 HTTP 模拟响应，不消耗 API 额度，不代表真实账号已联网验证。接口依据：[OpenAI](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)、[DeepSeek](https://api-docs.deepseek.com/)。
+当前源码在安装了 Git for Windows 的 Windows 上执行 41 项核心检查，以及 31 项 WPF 检查；额外传入 `--with-wsl --keep` 执行 3 项 WSL 参数传递、进程组停止和超时检查。`--keep` 保留临时现场，避免 WSL 刚退出时目录句柄释放的延迟影响清理。WPF 检查还覆盖 Java 分色、真实字体字形来源与行距、项目树层级和导航、细滚动条、Diff 总览跳转与字符级高亮、编辑改动色条、单击导航、Ctrl 悬停、非模态搜索、Amend 草稿保护，以及原生 Git Bash 多会话、中文与 ANSI、历史命令、Ctrl+C、缩放、进程清理和括号粘贴。既有构建、双语、Windows 凭据与 AI 生成回归仍保留。AI 接口测试使用本地 HTTP 模拟响应，不消耗 API 额度，不代表真实账号已联网验证。接口依据：[OpenAI](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)、[DeepSeek](https://api-docs.deepseek.com/)。
 
 “文件 → 打开项目”会把 Git 返回的路径规范化后传给系统文件夹选择器，避免 `D:/...` 路径触发 Windows Shell 的 `Value does not fall within the expected range`。发生其他异常时，错误窗口提供调用堆栈；设置目录内的 `last-error.log` 只保存异常类型和堆栈，不记录异常消息、命令输出或源码内容。
 

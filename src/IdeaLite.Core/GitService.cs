@@ -121,6 +121,12 @@ public sealed partial class GitService(string root)
         return ReadVersionAsync("HEAD", path, token);
     }
 
+    public async Task<string?> LastCommitMessageAsync(CancellationToken token = default)
+    {
+        if ((await RunAsync(["rev-parse", "--verify", "HEAD"], token)).ExitCode != 0) return null;
+        return (await RunAsync(["log", "-1", "--format=%B"], token)).EnsureSuccess().Output.TrimEnd('\r', '\n');
+    }
+
     public async Task<GitDiff> DiffAsync(GitChange change, bool staged, CancellationToken token = default)
     {
         var oldPath = staged ? change.OriginalPath ?? change.Path : change.Path;

@@ -236,13 +236,14 @@ await Test("Search refresh discovers external untracked files and preserves Git 
     True(!WorkspaceService.Search(await WorkspaceService.RefreshFilesAsync(fresh, git, default), "FreshLink").Any());
 });
 
-await Test("HEAD baseline distinguishes an unborn branch and excludes staged changes", async () =>
+await Test("HEAD baseline and amend message distinguish an unborn branch and preserve the full message", async () =>
 {
     var git = await Repository("head-baseline");
-    Equal("", await git.HeadTextAsync("Example.java"));
+    Equal<string?>(null, await git.LastCommitMessageAsync()); Equal("", await git.HeadTextAsync("Example.java"));
     const string source = "class Example {}\n";
     await File.WriteAllTextAsync(Path.Combine(git.Root, "Example.java"), source); await git.StageAsync(["Example.java"]);
     (await git.RunAsync(["commit", "-m", "fixture subject", "-m", "A full commit body.\nSecond body line."])).EnsureSuccess();
+    Equal("fixture subject\n\nA full commit body.\nSecond body line.", await git.LastCommitMessageAsync());
     await File.WriteAllTextAsync(Path.Combine(git.Root, "Example.java"), "class Changed {}\n"); await git.StageAsync(["Example.java"]);
     Equal(source, await git.HeadTextAsync("Example.java"));
 });

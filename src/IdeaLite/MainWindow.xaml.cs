@@ -776,7 +776,7 @@ public partial class MainWindow : Window
                 if (doc.Dirty) throw new InvalidOperationException("勾选文件仍有未保存的编辑，请保存后重试。");
             }
             await git.CommitSelectedAsync(paths, CommitMessage.Text, amend);
-            CommitMessage.Clear(); AmendCheck.IsChecked = false;
+            CommitMessage.Clear(); AmendCheck.IsChecked = false; ResetAmendMessage();
         });
         if (_bottom == BottomTool.Log) await LoadHistoryAsync();
         return true;

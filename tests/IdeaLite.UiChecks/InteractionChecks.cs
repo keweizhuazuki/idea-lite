@@ -175,6 +175,15 @@ internal static class InteractionChecks
             Wait(git.RunAsync(["commit", "-m", "fixture update"])); Wait(InvokeTask(owner, "RefreshGitAsync"));
             Require(margin.Changes.Count == 0, "A new HEAD left obsolete editor markers");
         }));
+        check("Amend fills the complete prior message and restores an untouched draft when unchecked", () => WithRepository((owner, git, root) =>
+        {
+            var message = (TextBox)owner.FindName("CommitMessage"); var amend = (CheckBox)owner.FindName("AmendCheck");
+            message.Text = "my next draft"; amend.IsChecked = true; Wait(InvokeTask(owner, "UpdateAmendMessageAsync"));
+            Require(message.Text == "fixture initial\n\nA multiline commit body.", "Amend omitted the previous subject or body");
+            amend.IsChecked = false; Wait(InvokeTask(owner, "UpdateAmendMessageAsync")); Require(message.Text == "my next draft", "Unchecking amend discarded the original draft");
+            amend.IsChecked = true; Wait(InvokeTask(owner, "UpdateAmendMessageAsync")); message.Text = "edited amend message";
+            amend.IsChecked = false; Wait(InvokeTask(owner, "UpdateAmendMessageAsync")); Require(message.Text == "edited amend message", "Unchecking amend overwrote user edits");
+        }));
         check("Search discovers externally created files and outside clicks dismiss without disabling the owner", () => WithRepository((owner, git, root) =>
         {
             File.WriteAllText(Path.Combine(root, "src", "FreshLink.java"), "public class FreshLink {}\n");

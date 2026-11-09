@@ -51,9 +51,12 @@ public partial class MainWindow
     private IReadOnlyList<GitRevision> _revisions = [];
     private string? _logRef;
     private bool _buildingRefs;
+    private string? _amendDraft, _amendMessage;
+    private int _amendRequest;
 
     private void ResetReviewState()
     {
+        ResetAmendMessage();
         _historyLoad?.Cancel(); _detailLoad?.Cancel(); _diffLoad?.Cancel();
         DetachDiffDocument();
         _preview = null; _renderedDiff = null; _diffScroll.Reset(); _commitChoices.Clear(); _references = []; _revisions = []; _logRef = null;
@@ -107,7 +110,31 @@ public partial class MainWindow
         finally { _bulkSelecting = false; }
         UpdateCommitSelection();
     }
-    private void AmendChanged(object sender, RoutedEventArgs e) => UpdateCommitSelection();
+    private async void AmendChanged(object sender, RoutedEventArgs e) => await Guard(UpdateAmendMessageAsync);
+    private void ResetAmendMessage() { _amendRequest++; _amendDraft = _amendMessage = null; }
+    private async Task UpdateAmendMessageAsync()
+    {
+        int request = ++_amendRequest;
+        UpdateCommitSelection();
+        if (AmendCheck.IsChecked != true)
+        {
+            if (_amendMessage != null && CommitMessage.Text == _amendMessage) CommitMessage.Text = _amendDraft ?? "";
+            _amendDraft = _amendMessage = null;
+            return;
+        }
+        var git = _git;
+        if (git == null) return;
+        string draft = CommitMessage.Text;
+        var message = await git.LastCommitMessageAsync();
+        if (request != _amendRequest || git != _git || AmendCheck.IsChecked != true) return;
+        if (message == null)
+        {
+            AmendCheck.IsChecked = false; UpdateCommitSelection();
+            SetStatus("尚无可修改的提交，请先创建第一次提交。"); return;
+        }
+        _amendDraft = draft; _amendMessage = message;
+        if (CommitMessage.Text == draft) CommitMessage.Text = message;
+    }
     private async void StagedDiffClick(object sender, RoutedEventArgs e)
     {
         if (ChangesList.SelectedItem is ChangeItem item && item.Change.IsStaged)
