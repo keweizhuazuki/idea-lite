@@ -3,9 +3,9 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
-using DiffPlex;
-using DiffPlex.DiffBuilder;
+using System.Windows.Threading;
 using DiffPlex.DiffBuilder.Model;
+using ICSharpCode.AvalonEdit.Document;
 using IdeaLite.Core;
 
 namespace IdeaLite;
@@ -41,6 +41,9 @@ public partial class MainWindow
     private DiffPreview? _preview;
     private GitDiff? _renderedDiff;
     private bool _renderedIgnore;
+    private DocumentState? _diffDocument;
+    private readonly DispatcherTimer _diffUpdateTimer = new() { Interval = TimeSpan.FromMilliseconds(200) };
+    private bool _updatingDiff;
     private readonly Dictionary<string, CommitChoice> _commitChoices = new(StringComparer.Ordinal);
     private bool _bulkSelecting;
     private CancellationTokenSource? _historyLoad, _detailLoad;
@@ -52,6 +55,7 @@ public partial class MainWindow
     private void ResetReviewState()
     {
         _historyLoad?.Cancel(); _detailLoad?.Cancel(); _diffLoad?.Cancel();
+        DetachDiffDocument();
         _preview = null; _renderedDiff = null; _diffScroll.Reset(); _commitChoices.Clear(); _references = []; _revisions = []; _logRef = null;
         _buildingRefs = true; LogRefs.Items.Clear(); _buildingRefs = false;
         LogList.ItemsSource = null; HistoryFiles.Items.Clear(); RevisionDetails.Clear(); OutputEditor.Clear();
@@ -123,15 +127,26 @@ public partial class MainWindow
     private void ClosePreview()
     {
         _diffLoad?.Cancel();
+        DetachDiffDocument();
         _preview = null;
         SetSurface(false); FocusEditor();
+    }
+
+    private void DetachDiffDocument()
+    {
+        _diffUpdateTimer.Stop();
+        if (_diffDocument != null) NewEditor.Document = new TextDocument();
+        _diffDocument = null;
+        NewEditor.IsReadOnly = true;
+        _diffUsages.Set(NewEditor, null, null);
     }
 
     private async Task ShowPreviewAsync(DiffPreview preview)
     {
         var git = _git;
         if (git == null) return;
-        ++_openRequest;
+        var request = ++_openRequest;
+        _diffUpdateTimer.Stop();
         _diffLoad?.Cancel(); _diffLoad?.Dispose(); _diffLoad = new();
         var token = _diffLoad.Token;
         var diff = preview.Revision != null && preview.File != null
@@ -139,31 +154,145 @@ public partial class MainWindow
             : await git.DiffAsync(preview.Change!, preview.Staged, token);
         token.ThrowIfCancellationRequested();
         if (diff.OldText.Contains('\0') || diff.NewText.Contains('\0')) throw new IOException("二进制文件无法显示文本差异。");
-        if (diff.OldText.Length + diff.NewText.Length > 1_000_000 || diff.OldText.Count(c => c == '\n') + diff.NewText.Count(c => c == '\n') > 40_000)
-            throw new IOException("差异超过视图上限（两侧共 100 万字符或 4 万行）。可在项目终端用 Git 查看。");
+        DocumentState? document = null;
+        if (preview.Revision == null && !preview.Staged)
+        {
+            var path = FileService.SafePath(git.Root, preview.Path);
+            if (File.Exists(path))
+            {
+                document = await GetDocumentAsync(path, request, token);
+                if (document is { Dirty: false, Saving: false } && document.File.Text != diff.NewText)
+                {
+                    var fresh = await FileService.ReadAsync(path, token);
+                    token.ThrowIfCancellationRequested();
+                    ReloadCleanDocument(document, fresh);
+                }
+            }
+        }
+        token.ThrowIfCancellationRequested();
         bool ignore = IgnoreWhitespace.IsChecked == true;
-        if (_preview?.Description == preview.Description && _renderedDiff == diff && _renderedIgnore == ignore)
+        bool sameView = _preview?.Path == preview.Path && _preview.Staged == preview.Staged &&
+            _preview.Revision == preview.Revision && _diffDocument == document;
+        if (document != null) diff = diff with { NewText = document.Document.Text };
+        if (sameView && _renderedDiff == diff && _renderedIgnore == ignore)
         {
             _preview = preview;
+            bool entering = !_showDiff;
             SetSurface(true);
+            if (entering) FocusEditor();
             return;
         }
-        var model = await Task.Run(() => new SideBySideDiffBuilder(new Differ()).BuildDiffModel(diff.OldText, diff.NewText, ignore), token);
+        var model = await BuildPreviewModelAsync(diff, ignore, token);
         token.ThrowIfCancellationRequested();
+        if (document != null && !_documents.Contains(document)) return;
+        if (model == null && document == null)
+            throw new IOException("差异超过视图上限（两侧共 100 万字符或 4 万行）。可在项目终端用 Git 查看。");
+        RenderPreview(preview, document, diff, model, ignore, !sameView);
+        if (document != null && document.Document.Text != diff.NewText) QueueDiffUpdate();
+    }
+
+    private static Task<SideBySideDiffModel?> BuildPreviewModelAsync(GitDiff diff, bool ignore, CancellationToken token)
+    {
+        // The editable buffer can grow beyond the comparison limit while the user is typing.
+        if (diff.OldText.Length + diff.NewText.Length > 1_000_000 ||
+            diff.OldText.Count(c => c == '\n') + diff.NewText.Count(c => c == '\n') > 40_000)
+            return Task.FromResult<SideBySideDiffModel?>(null);
+        return Task.Run<SideBySideDiffModel?>(() => EditorSupport.BuildDiff(diff.OldText, diff.NewText, ignore), token);
+    }
+
+    private void QueueDiffUpdate()
+    {
+        _diffUpdateTimer.Stop();
+        if (_showDiff) _diffUpdateTimer.Start();
+    }
+
+    private async Task UpdateEditableDiffAsync()
+    {
+        _diffUpdateTimer.Stop();
+        if (_updatingDiff || !_showDiff || _diffDocument == null || _preview == null || _renderedDiff == null) return;
+        var document = _diffDocument;
+        var preview = _preview;
+        var baseline = _renderedDiff;
+        var draft = document.Document.Text;
+        if (draft == baseline.NewText) return;
+        var diff = baseline with { NewText = draft };
+        var token = _diffLoad?.Token ?? default;
+        bool ignore = _renderedIgnore;
+        _updatingDiff = true;
+        try
+        {
+            var model = await BuildPreviewModelAsync(diff, ignore, token);
+            if (!token.IsCancellationRequested && _showDiff && _diffDocument == document &&
+                ReferenceEquals(_renderedDiff, baseline) && document.Document.Text == draft)
+                RenderPreview(preview, document, diff, model, ignore, false);
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            _updatingDiff = false;
+            if (!token.IsCancellationRequested && _showDiff && _diffDocument != null &&
+                _diffDocument.Document.Text != _renderedDiff?.NewText)
+                QueueDiffUpdate();
+        }
+    }
+
+    private void RenderPreview(DiffPreview preview, DocumentState? document, GitDiff diff, SideBySideDiffModel? model, bool ignore, bool navigate)
+    {
+        ClearDefinitionHover();
         _preview = preview;
         _renderedDiff = diff; _renderedIgnore = ignore;
-        _diffScroll.Reset();
-        EditorSupport.SetDiffText(OldEditor, model.OldText.Lines, preview.File?.OldPath ?? preview.Path, true);
-        EditorSupport.SetDiffText(NewEditor, model.NewText.Lines, preview.Path, false);
+        var oldLines = model?.OldText.Lines ?? [];
+        var newLines = model?.NewText.Lines ?? [];
+        if (model == null)
+        {
+            OldEditor.Text = diff.OldText;
+            EditorSupport.Highlight(OldEditor, preview.File?.OldPath ?? preview.Path);
+            EditorSupport.SetDiffDecorations(OldEditor, [], true, aligned: false);
+        }
+        else EditorSupport.SetDiffText(OldEditor, oldLines, preview.File?.OldPath ?? preview.Path, true);
+        bool newDocument = _diffDocument != document;
+        if (newDocument) DetachDiffDocument();
+        _diffDocument = document;
+        _diffScroll.SetRightLines(document == null ? null : newLines.Select(line => line.Position).ToArray());
+        OldOverview.SetChanges(oldLines, true);
+        if (document == null)
+        {
+            EditorSupport.SetDiffText(NewEditor, newLines, preview.Path, false);
+            NewOverview.SetChanges(newLines, false);
+        }
+        else
+        {
+            if (NewEditor.Document != document.Document) NewEditor.Document = document.Document;
+            NewEditor.IsReadOnly = false;
+            NewEditor.Options.ConvertTabsToSpaces = !document.File.Style.UseTabs;
+            NewEditor.Options.IndentationSize = document.File.Style.IndentSize;
+            EditorSupport.Highlight(NewEditor, preview.Path);
+            var actualLines = newLines.Where(line => line.Position.HasValue).ToArray();
+            EditorSupport.SetDiffDecorations(NewEditor, actualLines, false, aligned: false);
+            NewOverview.SetChanges(LineChanges.Aligned(newLines, false).Select(change => change with
+            {
+                FirstLine = _diffScroll.RightLine(change.FirstLine),
+                LastLine = _diffScroll.RightLine(change.LastLine)
+            }).ToArray());
+            if (newDocument) _diffUsages.Set(NewEditor, _workspace, preview.Path);
+        }
         UiText.Set(OldLabel, "Text", () => TranslateDiffLabel(diff.OldLabel));
-        UiText.Set(NewLabel, "Text", () => TranslateDiffLabel(diff.NewLabel));
-        _diffLines = model.NewText.Lines.Select((line, i) => (line, i)).Where(x => x.line.Type != ChangeType.Unchanged &&
-            (x.i == 0 || model.NewText.Lines[x.i - 1].Type == ChangeType.Unchanged)).Select(x => x.i + 1).ToArray();
-        _diffIndex = -1;
-        UiText.Set(DiffSummary, "Text", _diffLines.Length == 0 ? "没有文本差异" : $"{_diffLines.Length} 处差异");
-        SetSurface(true);
-        SetStatus(preview.Description);
-        MoveDiff(1);
+        UiText.Set(NewLabel, "Text", () => TranslateDiffLabel(diff.NewLabel) +
+            (document == null ? "" : " · " + UiText.Current.Translate("可编辑 · Ctrl+S 保存")));
+        _diffLines = newLines.Select((line, i) => (line, i)).Where(x => x.line.Type != ChangeType.Unchanged &&
+            (x.i == 0 || newLines[x.i - 1].Type == ChangeType.Unchanged)).Select(x => x.i + 1).ToArray();
+        _diffIndex = navigate ? -1 : Math.Min(_diffIndex, _diffLines.Length - 1);
+        UiText.Set(DiffSummary, "Text", model == null ? "差异超过视图上限" :
+            _diffLines.Length == 0 ? "没有文本差异" : $"{_diffLines.Length} 处差异");
+        bool entering = !_showDiff || navigate;
+        if (entering) SetSurface(true);
+        if (navigate)
+        {
+            SetStatus(preview.Description);
+            MoveDiff(1);
+        }
+        else if (document != null) _diffScroll.AlignFromRight();
+        if (entering) FocusEditor();
     }
 
     private static string TranslateDiffLabel(string label)
@@ -320,7 +449,7 @@ public partial class MainWindow
     }
     private async void HistoryFileDoubleClick(object sender, MouseButtonEventArgs e)
     {
-        if (HistoryFiles.SelectedItem is TreeViewItem { Tag: RevisionFile }) await Guard(OpenHistoryFileAsync);
+        if (TreeItemAt(e.OriginalSource) is { Tag: RevisionFile }) await Guard(OpenHistoryFileAsync);
     }
     private async void HistoryFileDiffClick(object sender, RoutedEventArgs e) => await Guard(OpenHistoryFileAsync);
     private async void LogDoubleClick(object sender, MouseButtonEventArgs e) => await Guard(async () =>

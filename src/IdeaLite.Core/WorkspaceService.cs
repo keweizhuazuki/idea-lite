@@ -4,13 +4,20 @@ namespace IdeaLite.Core;
 
 public sealed record SearchHit(string Name, string Path, int Line, string Kind, string Detail)
 {
+    public int Column { get; init; }
     public string DisplayName => Name + "   · " + Kind;
-    public string Location => Kind == "操作" ? Detail : Path + ":" + Line;
+    public string Location => Kind == "操作" ? Detail : Path + ":" + Line + (Column > 0 ? ":" + Column : "");
     public string Description => Detail == Path ? Kind : Detail;
     public override string ToString() => $"{Name}   {Kind}   {Path}:{Line}  {Detail}";
 }
+public readonly record struct JavaTypeReference(string Path, int Line, int Column);
+
 public sealed record WorkspaceSnapshot(string Root, string[] Files, IReadOnlyList<SearchHit> Symbols,
-    IReadOnlyList<SearchHit> Spring, IReadOnlyList<MavenModule> Maven, bool Limited);
+    IReadOnlyList<SearchHit> Spring, IReadOnlyList<MavenModule> Maven, bool Limited)
+{
+    public IReadOnlyDictionary<SearchHit, IReadOnlyList<JavaTypeReference>> JavaTypeUsages { get; init; } =
+        new Dictionary<SearchHit, IReadOnlyList<JavaTypeReference>>();
+}
 
 public static class WorkspaceService
 {
@@ -23,17 +30,38 @@ public static class WorkspaceService
     public static bool IsSourceFile(string path) => TextExtensions.Contains(Path.GetExtension(path)) || TextExtensions.Contains(Path.GetFileName(path));
     public static bool IsIgnored(string path) => path.Replace('\\', '/').Split('/').Any(Ignored.Contains);
 
+    public static async Task<WorkspaceSnapshot> RefreshFilesAsync(WorkspaceSnapshot snapshot, GitService? git, CancellationToken token)
+    {
+        var (files, _) = await ReadWorkspaceFilesAsync(snapshot.Root, git, token);
+        return files.SequenceEqual(snapshot.Files, StringComparer.Ordinal) ? snapshot : await LoadAsync(snapshot.Root, git, token);
+    }
+
+    private static async Task<(string[] Files, bool Limited)> ReadWorkspaceFilesAsync(string root, GitService? git, CancellationToken token)
+    {
+        var gitPaths = git == null ? null : await git.FilesAsync(token);
+        return await Task.Run(() =>
+        {
+            var paths = gitPaths == null ? Enumerate(root, token) : gitPaths.Where(path =>
+            {
+                token.ThrowIfCancellationRequested();
+                var fullPath = Path.Combine(root, path);
+                return File.Exists(fullPath) || Directory.Exists(fullPath);
+            });
+            var files = paths.Where(path => !IsIgnored(path)).Take(MaxFiles + 1).ToArray();
+            return (files.Take(MaxFiles).Order(StringComparer.OrdinalIgnoreCase).ToArray(), files.Length > MaxFiles);
+        }, token);
+    }
+
     public static async Task<WorkspaceSnapshot> LoadAsync(string root, GitService? git, CancellationToken token)
     {
-        var allFiles = git != null ? await git.FilesAsync(token) : await Task.Run(() => Enumerate(root, token).Take(MaxFiles + 1).ToArray(), token);
-        var files = allFiles.Where(p => !IsIgnored(p)).Take(MaxFiles).Order(StringComparer.OrdinalIgnoreCase).ToArray();
+        var (files, limited) = await ReadWorkspaceFilesAsync(root, git, token);
         return await Task.Run(async () =>
         {
             var symbols = new List<SearchHit>();
             var spring = new List<SearchHit>();
             var maven = new List<MavenModule>();
+            var java = new List<(string Path, string Code)>();
             long scanned = 0;
-            bool limited = allFiles.Length > MaxFiles;
             var pomPaths = files.Where(p => Path.GetFileName(p).Equals("pom.xml", StringComparison.OrdinalIgnoreCase)).OrderBy(p => p.Length).Take(500).ToArray();
             MavenModule? parent = null;
             foreach (var relative in pomPaths)
@@ -60,13 +88,17 @@ public static class WorkspaceService
                     if (!File.Exists(path) || new FileInfo(path).Length > 512 * 1024) continue;
                     var text = await FileService.ReadTextAsync(path, token);
                     scanned += new FileInfo(path).Length;
-                    if (extension is ".java" or ".kt") JavaAnalyzer.Analyze(relative, text, symbols, spring);
+                    if (extension == ".java") java.Add((relative, JavaAnalyzer.AnalyzeSource(relative, text, symbols, spring)));
+                    else if (extension == ".kt") JavaAnalyzer.Analyze(relative, text, symbols, spring);
                     else if (Path.GetFileName(relative).StartsWith("application", StringComparison.OrdinalIgnoreCase) || Path.GetFileName(relative).StartsWith("bootstrap", StringComparison.OrdinalIgnoreCase))
                         spring.Add(new(Path.GetFileName(relative), relative, 1, "配置", "Spring 配置文件"));
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.DecoderFallbackException) { }
             }
-            return new WorkspaceSnapshot(root, files, symbols, spring, maven, limited);
+            return new WorkspaceSnapshot(root, files, symbols, spring, maven, limited)
+            {
+                JavaTypeUsages = JavaAnalyzer.IndexTypeUsages(symbols, java, token)
+            };
         }, token);
     }
 

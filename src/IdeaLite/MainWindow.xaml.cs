@@ -65,15 +65,20 @@ public partial class MainWindow : Window
         OutputEditor.Options.AllowScrollBelowDocument = false;
         OutputEditor.TextArea.TextView.LineTransformers.Add(new BuildOutputColorizer());
         Editor.TextArea.Caret.PositionChanged += (_, _) => UpdateCaret();
-        Editor.PreviewMouseWheel += (_, e) =>
+        foreach (var editor in new[] { Editor, OldEditor, NewEditor })
+            editor.PreviewMouseWheel += (_, e) =>
         {
             if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
             {
-                Editor.FontSize = Math.Clamp(Editor.FontSize + (e.Delta > 0 ? 1 : -1), 10, 26);
+                double size = Math.Clamp(editor.FontSize + (e.Delta > 0 ? 1 : -1), 10, 26);
+                if (editor == Editor) Editor.FontSize = size;
+                else OldEditor.FontSize = NewEditor.FontSize = size;
                 e.Handled = true;
             }
         };
         _diffScroll = new DiffScrollSynchronizer(OldEditor, NewEditor);
+        _diffUpdateTimer.Tick += async (_, _) => await Guard(UpdateEditableDiffAsync);
+        InitializeEditorChanges();
         InitializeTerminalInput();
         Editor.IsReadOnly = true;
         InitializeWorkbench();
@@ -111,6 +116,7 @@ public partial class MainWindow : Window
         if (_commandBusy) { SetStatus("请等待正在运行的命令结束，或先停止命令。"); return; }
         if (!ConfirmCloseAll()) return;
         _aiGeneration?.Cancel();
+        ResetLineChanges();
         _workspaceLoad?.Cancel(); _workspaceLoad?.Dispose(); _workspaceLoad = new();
         ++_openRequest;
         ResetReviewState();
@@ -120,6 +126,7 @@ public partial class MainWindow : Window
         RebuildTabs(); FileTree.Items.Clear(); ChangesList.ItemsSource = null; MavenList.Items.Clear(); SpringList.ItemsSource = null;
         OldEditor.Clear(); NewEditor.Clear(); CommitMessage.Clear(); AmendCheck.IsChecked = false;
         SetSurface(false);
+        UpdateTypeUsages();
         root = Path.GetFullPath(root);
         SetStatus("正在打开项目与建立有上限的源码索引…");
         string? gitRoot;
@@ -200,34 +207,24 @@ public partial class MainWindow : Window
 
     private static bool IsPackageDirectory(string path) => path.Contains("/java/", StringComparison.Ordinal) || path.Contains("/kotlin/", StringComparison.Ordinal);
 
-    private async Task OpenFileAsync(string relative, int? line = null, bool remember = true)
+    private Task OpenFileAsync(string relative, int? line = null, bool remember = true) =>
+        OpenLocationAsync(relative, line, 1, remember);
+
+    private async Task OpenLocationAsync(string relative, int? line, int column, bool remember = true)
     {
         if (_workspace == null) return;
         var request = ++_openRequest;
         _diffLoad?.Cancel();
         var path = FileService.SafePath(_workspace.Root, relative);
-        var document = _documents.FirstOrDefault(d => d.File.Path.Equals(path, StringComparison.OrdinalIgnoreCase));
-        if (document == null)
-        {
-            if (_documents.Count >= 12)
-            {
-                var disposable = _documents.FirstOrDefault(d => !d.Dirty && d != _active);
-                if (disposable == null) { SetStatus("最多保留 12 个文档，请先保存或关闭部分标签。"); return; }
-                _documents.Remove(disposable);
-            }
-            var file = await FileService.ReadAsync(path);
-            if (request != _openRequest) return;
-            document = new(file);
-            _documents.Add(document);
-            var captured = document;
-            captured.Document.Changed += (_, _) => { if (!_loadingDocument) { if (!captured.Dirty) { captured.Dirty = true; RebuildTabs(); } } };
-        }
+        var document = await GetDocumentAsync(path, request);
+        if (document == null || request != _openRequest) return;
         if (_active != null)
         {
             _active.Caret = Editor.CaretOffset; _active.Scroll = Editor.VerticalOffset;
             if (remember && (_active != document || (line.HasValue && Editor.TextArea.Caret.Line != line.Value))) _back.Push((Relative(_active.File.Path), Editor.TextArea.Caret.Line));
         }
         _loadingDocument = true; _active = document;
+        ClearDefinitionHover();
         Editor.Document = document.Document; Editor.IsReadOnly = false;
         Editor.Options.ConvertTabsToSpaces = !document.File.Style.UseTabs;
         Editor.Options.IndentationSize = document.File.Style.IndentSize;
@@ -236,17 +233,48 @@ public partial class MainWindow : Window
         Editor.ScrollToVerticalOffset(document.Scroll);
         _loadingDocument = false;
         SetSurface(false);
+        UpdateTypeUsages();
         UpdateStructure();
 
         if (line is int targetLine)
         {
             targetLine = Math.Clamp(targetLine, 1, document.Document.LineCount);
-            Editor.CaretOffset = document.Document.GetLineByNumber(targetLine).Offset;
-            Editor.ScrollToLine(targetLine);
+            var destination = document.Document.GetLineByNumber(targetLine);
+            column = Math.Clamp(column, 1, destination.Length + 1);
+            Editor.CaretOffset = destination.Offset + column - 1;
+            if (column == 1) Editor.ScrollToLine(targetLine);
+            else Editor.ScrollTo(targetLine, column);
         }
         RebuildTabs(); UpdateCaret(); Editor.TextArea.Focus();
         SetStatus(document.File.Style.Source + "");
+        await RefreshEditorBaselineAsync();
     }
+
+    private async Task<DocumentState?> GetDocumentAsync(string path, int request, CancellationToken token = default)
+    {
+        var existing = _documents.FirstOrDefault(doc => doc.File.Path.Equals(path, StringComparison.OrdinalIgnoreCase));
+        if (existing != null) return existing;
+        var file = await FileService.ReadAsync(path, token);
+        token.ThrowIfCancellationRequested();
+        if (request != _openRequest) return null;
+        if (_documents.Count >= 12)
+        {
+            var disposable = _documents.FirstOrDefault(doc => !doc.Dirty && !doc.Saving && doc != _active && doc != _diffDocument);
+            if (disposable == null) { SetStatus("最多保留 12 个文档，请先保存或关闭部分标签。"); return null; }
+            _documents.Remove(disposable);
+        }
+        var document = new DocumentState(file);
+        _documents.Add(document);
+        document.Document.Changed += (_, _) =>
+        {
+            if (_loadingDocument) return;
+            if (!document.Dirty) { document.Dirty = true; RebuildTabs(); }
+            if (_active == document) QueueLineChanges();
+            if (_diffDocument == document) { ClearDefinitionHover(); QueueDiffUpdate(); }
+        };
+        return document;
+    }
+
     private string Relative(string path) => _workspace == null ? path : Path.GetRelativePath(_workspace.Root, path).Replace('\\', '/');
     private void RebuildTabs()
     {
@@ -261,14 +289,14 @@ public partial class MainWindow : Window
         if (_preview != null)
         {
             var preview = _preview;
-            AddEditorTab(Path.GetFileName(preview.Path), "Diff", preview.Description, _showDiff, false,
+            AddEditorTab(Path.GetFileName(preview.Path), "Diff", preview.Description, _showDiff, _diffDocument?.Dirty == true,
                 () => ShowPreviewAsync(preview), () => { ClosePreview(); return Task.CompletedTask; });
         }
     }
 
     private async Task SaveAsync(bool overwrite = false)
     {
-        var doc = _active;
+        var doc = _showDiff ? _diffDocument : _active;
         if (doc == null || !doc.Dirty || doc.Saving) return;
         doc.Saving = true;
         var textToSave = doc.Document.Text;
@@ -280,9 +308,10 @@ public partial class MainWindow : Window
             if (!editedDuringSave && doc.Document.Text != saved.Text)
             {
                 _loadingDocument = true;
-                var offset = Editor.CaretOffset;
+                var editor = _showDiff ? NewEditor : Editor;
+                var offset = editor.CaretOffset;
                 doc.Document.Replace(0, doc.Document.TextLength, saved.Text);
-                if (_active == doc) Editor.CaretOffset = Math.Min(offset, doc.Document.TextLength);
+                if (editor.Document == doc.Document) editor.CaretOffset = Math.Min(offset, doc.Document.TextLength);
                 _loadingDocument = false;
             }
             doc.Dirty = editedDuringSave; RebuildTabs(); UpdateCaret(); SetStatus("已保存 " + Relative(doc.File.Path) + (editedDuringSave ? " · 保存期间的新编辑已保留，请再次保存" : ""));
@@ -291,7 +320,7 @@ public partial class MainWindow : Window
         catch (FileChangedException)
         {
             doc.Saving = false;
-            if (_active == doc && Dialogs.Confirm(this, "文件已被外部程序更改或删除。是否用编辑器内容覆盖磁盘版本？\n选择“否”会保留编辑器内容，你可以另行复制。")) await SaveAsync(true);
+            if ((_showDiff ? _diffDocument : _active) == doc && Dialogs.Confirm(this, "文件已被外部程序更改或删除。是否用编辑器内容覆盖磁盘版本？\n选择“否”会保留编辑器内容，你可以另行复制。")) await SaveAsync(true);
         }
         finally { doc.Saving = false; }
     }
@@ -299,6 +328,7 @@ public partial class MainWindow : Window
     private async Task CloseDocumentAsync(DocumentState doc)
     {
         if (doc.Dirty && !Dialogs.Confirm(this, "关闭并丢弃未保存的编辑？\n" + doc.File.Path)) return;
+        if (_diffDocument == doc) ClosePreview();
         _documents.Remove(doc);
         if (_active == doc)
         {
@@ -322,14 +352,18 @@ public partial class MainWindow : Window
             BranchLabel.Text = status.Branch.Split("...")[0];
             BranchButton.ToolTip = status.Branch;
             BindChanges(status);
+            await RefreshEditorBaselineAsync();
         }
         finally { _refreshingGit = false; }
         if (_git != git) return;
         if (_showDiff && _preview?.Change != null)
         {
             var current = _gitStatus!.Changes.FirstOrDefault(c => c.Path == _preview.Path && !c.IsConflict);
-            if (current == null) ClosePreview();
-            else await ShowPreviewAsync(DiffPreview.Local(current, current.IsStaged && (!current.HasWorkingChanges || _preview.Staged)));
+            if (current != null)
+                await ShowPreviewAsync(DiffPreview.Local(current, _diffDocument == null && current.IsStaged && (!current.HasWorkingChanges || _preview.Staged)));
+            else if (_diffDocument != null && !_gitStatus!.Changes.Any(change => change.Path == _preview.Path))
+                await ShowPreviewAsync(DiffPreview.Local(new GitChange(_preview.Path, null, ' ', 'M'), false));
+            else ClosePreview();
         }
     }
 
@@ -364,33 +398,50 @@ public partial class MainWindow : Window
             [UiText.Current.Translate("推送")] = ("Ctrl+Shift+K", PushWithPreviewAsync),
             [UiText.Current.Translate("服务")] = ("Alt+8", () => SelectBottomAsync(BottomTool.Services, false)),
             [UiText.Current.Translate("刷新项目")] = ("F5", RefreshWorkspaceAsync),
+            [UiText.Current.Translate("从磁盘重新加载全部文件")] = ("Ctrl+Alt+Y", ReloadAllFromDiskAsync),
             [UiText.Current.Translate("隐藏或恢复工具窗口")] = ("Ctrl+Shift+F12", () => { ToggleFocusMode(); return Task.CompletedTask; })
         };
         var actions = commands.Select(c => new SearchHit(c.Key, "", 0, "操作", c.Value.Key)).ToArray();
+        if (_workspace != null)
+        {
+            var snapshot = _workspace;
+            var fresh = await WorkspaceService.RefreshFilesAsync(snapshot, _git, CancellationToken.None);
+            if (_workspace != snapshot) return;
+            if (!ReferenceEquals(fresh, snapshot)) { _workspace = fresh; RenderProjectTree(); ClearDefinitionHover(); UpdateTypeUsages(); }
+        }
         var dialog = new SearchWindow(this, _workspace ?? new WorkspaceSnapshot("", [], [], [], [], false), mode, initial, actions: actions);
-        if (dialog.ShowDialog() != true || dialog.Result is not { } result) return;
+        if (!await dialog.ShowSearchAsync() || dialog.Result is not { } result) return;
         if (result.Kind == "操作" && commands.TryGetValue(result.Name, out var command)) await command.Action();
         else await OpenFileAsync(result.Path, result.Line);
     }
 
-    private async Task NavigateDefinitionAsync(int? offset = null)
+    private TextEditor? CodeEditor => _showDiff
+        ? (OldEditor.IsKeyboardFocusWithin ? OldEditor : NewEditor)
+        : (_active != null ? Editor : null);
+
+    private string? CodePath(TextEditor editor)
     {
-        if (_workspace == null || _active == null) return;
-        var position = Math.Clamp(offset ?? Editor.CaretOffset, 0, Editor.Document.TextLength);
-        var text = Editor.Text;
-        int start = position, end = position;
-        while (start > 0 && (char.IsLetterOrDigit(text[start - 1]) || text[start - 1] is '_' or '$')) start--;
-        while (end < text.Length && (char.IsLetterOrDigit(text[end]) || text[end] is '_' or '$')) end++;
-        if (start == end) return;
-        var name = text[start..end];
-        var hits = WorkspaceService.FindDefinitions(_workspace, name, Relative(_active.File.Path), text);
+        if (editor == Editor) return _active == null ? null : Relative(_active.File.Path);
+        return editor == OldEditor ? _preview?.File?.OldPath ?? _preview?.Change?.OriginalPath ?? _preview?.Path : _preview?.Path;
+    }
+
+    private async Task NavigateDefinitionAsync(TextEditor editor, int? offset = null)
+    {
+        if (_workspace == null || CodePath(editor) is not { } path) return;
+        var (start, length) = IdentifierAt(editor.Document, offset ?? editor.CaretOffset, atCaret: true);
+        if (length == 0) return;
+        var name = editor.Document.GetText(start, length);
+        var workspace = _workspace;
+        var hits = SourceDefinitions(workspace, name, path, editor.Text, out var importedType);
         if (hits.Count == 1) await OpenFileAsync(hits[0].Path, hits[0].Line);
         else if (hits.Count > 1)
         {
             var search = new SearchWindow(this, _workspace, "symbols", name, hits);
-            if (search.ShowDialog() == true && search.Result is { } hit) await OpenFileAsync(hit.Path, hit.Line);
+            if (await search.ShowSearchAsync() && search.Result is { } hit) await OpenFileAsync(hit.Path, hit.Line);
         }
-        else SetStatus($"没有找到 {name} 的项目源码定义。此轻量索引不解析依赖 JAR、类型推断或动态代理。可按 F5 更新索引。");
+        else if (importedType != null && MavenSources.ModuleFor(workspace, path) is { } module)
+            await OpenMavenSourceAsync(workspace, module, importedType, name);
+        else SetStatus($"没有找到 {name} 的项目源码定义。可按 F5 更新索引。");
     }
 
     private async void OnKeyDown(object sender, KeyEventArgs e)
@@ -407,6 +458,7 @@ public partial class MainWindow : Window
         var ctrl = ModifierKeys.Control;
         var alt = ModifierKeys.Alt;
         var shift = ModifierKeys.Shift;
+        var editor = CodeEditor;
         Func<Task>? action = (modifiers, key) switch
         {
             (ModifierKeys.Alt, Key.D1) => () => { SelectLeft(LeftTool.Project); return Task.CompletedTask; }
@@ -443,9 +495,10 @@ public partial class MainWindow : Window
             (ModifierKeys.Control | ModifierKeys.Shift, Key.N) => () => SearchAsync("files"),
             (ModifierKeys.Control, Key.N) => () => SearchAsync("classes"),
             (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt, Key.N) => () => SearchAsync("symbols"),
-            (ModifierKeys.Control | ModifierKeys.Shift, Key.F) => () => SearchAsync("text", Editor.SelectedText.Length < 100 ? Editor.SelectedText : ""),
-            (ModifierKeys.Control, Key.B) or (ModifierKeys.None, Key.F12) when !_showDiff => () => NavigateDefinitionAsync(),
+            (ModifierKeys.Control | ModifierKeys.Shift, Key.F) => () => SearchAsync("text", editor?.SelectionLength < 100 ? editor.SelectedText : ""),
+            (ModifierKeys.Control, Key.B) or (ModifierKeys.None, Key.F12) when editor != null => () => NavigateDefinitionAsync(editor),
             (ModifierKeys.None, Key.F5) => RefreshWorkspaceAsync,
+            (ModifierKeys.Control | ModifierKeys.Alt, Key.Y) => ReloadAllFromDiskAsync,
             (ModifierKeys.Control, Key.W) when _showDiff => () => { ClosePreview(); return Task.CompletedTask; }
             ,
             (ModifierKeys.Control, Key.W) when _active != null => () => CloseDocumentAsync(_active),
@@ -458,13 +511,10 @@ public partial class MainWindow : Window
         else if (modifiers == (ctrl | alt) && key == Key.S) ShowSettingsMenu();
         else if (modifiers == shift && key == Key.Escape) HideFocusedTool();
         else if (_showDiff && key == Key.F7 && (modifiers == shift || modifiers == ModifierKeys.None)) MoveDiff(modifiers == shift ? -1 : 1);
-        else if (!_showDiff && Editor.IsKeyboardFocusWithin && _active != null && modifiers == ctrl && key == Key.H) ReplaceText();
-        else if (!_showDiff && _active != null && modifiers == ctrl && key == Key.G) GoToLine();
-        else if (!_showDiff && _active != null && modifiers == (ctrl | alt) && key == Key.L) NormalizeIndentation();
-        else if (modifiers == ctrl && key == Key.D && Editor.IsKeyboardFocusWithin && _active != null) DuplicateLine();
-        else if (modifiers == ctrl && key == Key.OemQuestion && Editor.IsKeyboardFocusWithin && _active != null) ToggleComment();
+        else if (editor != null && (editor.IsKeyboardFocusWithin || editor == Editor && key is Key.G or Key.L) &&
+            HandleCodeShortcut(editor, key, modifiers)) { }
         else if (key == Key.Tab && (modifiers == ctrl || modifiers == (ctrl | shift))) await Guard(() => CycleTabAsync(modifiers.HasFlag(shift)));
-        else if (key == Key.Escape && modifiers == ModifierKeys.None && !Editor.IsKeyboardFocusWithin && !CommitMessage.IsKeyboardFocusWithin) FocusEditor();
+        else if (key == Key.Escape && modifiers == ModifierKeys.None && editor?.IsKeyboardFocusWithin != true && !CommitMessage.IsKeyboardFocusWithin) FocusEditor();
         else return;
         e.Handled = true;
     }
@@ -476,15 +526,30 @@ public partial class MainWindow : Window
         if ((DateTime.UtcNow - _lastShift).TotalMilliseconds < 400) { _lastShift = default; e.Handled = true; await Guard(() => SearchAsync()); }
         else _lastShift = DateTime.UtcNow;
     }
-    private void GoToLine()
+    internal bool HandleCodeShortcut(TextEditor editor, Key key, ModifierKeys modifiers)
     {
-        var value = Dialogs.Prompt(this, "跳转到行", "输入行号（可使用 行:列）", Editor.TextArea.Caret.Line.ToString());
+        if (modifiers == ModifierKeys.Control && key == Key.G) { GoToLine(editor); return true; }
+        var document = editor == Editor ? _active : editor == NewEditor ? _diffDocument : null;
+        if (document == null || editor.IsReadOnly || editor.Document != document.Document) return false;
+        switch (modifiers, key)
+        {
+            case (ModifierKeys.Control | ModifierKeys.Alt, Key.L): NormalizeIndentation(editor, document.File.Style); return true;
+            case (ModifierKeys.Control, Key.H): ReplaceText(editor); return true;
+            case (ModifierKeys.Control, Key.D): DuplicateLine(editor, document.File.Style.NewLine); return true;
+            case (ModifierKeys.Control, Key.OemQuestion): ToggleComment(editor, document.File.Path); return true;
+            default: return false;
+        }
+    }
+
+    private void GoToLine(TextEditor editor)
+    {
+        var value = Dialogs.Prompt(this, "跳转到行", "输入行号（可使用 行:列）", editor.TextArea.Caret.Line.ToString());
         var parts = value?.Split(':');
         if (parts == null || !int.TryParse(parts[0], out var line)) return;
-        line = Math.Clamp(line, 1, Editor.Document.LineCount);
+        line = Math.Clamp(line, 1, editor.Document.LineCount);
         var column = parts.Length > 1 && int.TryParse(parts[1], out var c) ? Math.Max(c, 1) : 1;
-        Editor.TextArea.Caret.Position = new ICSharpCode.AvalonEdit.TextViewPosition(line, Math.Min(column, Editor.Document.GetLineByNumber(line).Length + 1));
-        Editor.ScrollToLine(line); Editor.TextArea.Focus();
+        editor.TextArea.Caret.Position = new ICSharpCode.AvalonEdit.TextViewPosition(line, Math.Min(column, editor.Document.GetLineByNumber(line).Length + 1));
+        editor.ScrollToLine(line); editor.TextArea.Focus();
     }
     private void ToggleFocusMode()
     {
@@ -494,47 +559,46 @@ public partial class MainWindow : Window
         if (_focusMode) FocusEditor();
     }
 
-    private void NormalizeIndentation()
+    private void NormalizeIndentation(TextEditor editor, EditorStyle style)
     {
-        if (_active == null) return;
-        var offset = Editor.CaretOffset;
-        Editor.Document.Replace(0, Editor.Document.TextLength, _active.File.Style.NormalizeIndentation(Editor.Text));
-        Editor.CaretOffset = Math.Min(offset, Editor.Document.TextLength);
+        var offset = editor.CaretOffset;
+        editor.Document.Replace(0, editor.Document.TextLength, style.NormalizeIndentation(editor.Text));
+        editor.CaretOffset = Math.Min(offset, editor.Document.TextLength);
         SetStatus("已按文件风格统一缩进空白。此操作不重排 Java 语句，可 Ctrl+Z 撤销。");
     }
-    private void ReplaceText()
+    private void ReplaceText(TextEditor editor)
     {
-        var find = Dialogs.Prompt(this, "替换文本", "查找内容（区分大小写，按字面文本匹配）", Editor.SelectedText.Length < 200 ? Editor.SelectedText : "");
+        var find = Dialogs.Prompt(this, "替换文本", "查找内容（区分大小写，按字面文本匹配）", editor.SelectedText.Length < 200 ? editor.SelectedText : "");
         if (string.IsNullOrEmpty(find)) return;
         var replacement = Dialogs.Prompt(this, "替换文本", "替换为（留空表示删除）");
         if (replacement == null) return;
-        var count = Regex.Matches(Editor.Text, Regex.Escape(find)).Count;
+        var count = Regex.Matches(editor.Text, Regex.Escape(find)).Count;
         if (count == 0) { SetStatus("没有匹配的文本。"); return; }
         if (!Dialogs.Confirm(this, $"替换当前文件中的 {count} 处匹配？可使用 Ctrl+Z 撤销。")) return;
-        Editor.Document.Replace(0, Editor.Document.TextLength, Editor.Text.Replace(find, replacement, StringComparison.Ordinal));
+        editor.Document.Replace(0, editor.Document.TextLength, editor.Text.Replace(find, replacement, StringComparison.Ordinal));
     }
-    private void DuplicateLine()
+    private static void DuplicateLine(TextEditor editor, string newLine)
     {
-        var line = Editor.Document.GetLineByOffset(Editor.CaretOffset);
-        var value = Editor.Document.GetText(line.Offset, line.TotalLength);
-        if (line.DelimiterLength == 0) value = (_active?.File.Style.NewLine ?? "\n") + value;
-        Editor.Document.Insert(line.Offset + line.TotalLength, value);
+        var line = editor.Document.GetLineByOffset(editor.CaretOffset);
+        var value = editor.Document.GetText(line.Offset, line.TotalLength);
+        if (line.DelimiterLength == 0) value = newLine + value;
+        editor.Document.Insert(line.Offset + line.TotalLength, value);
     }
-    private void ToggleComment()
+    private void ToggleComment(TextEditor editor, string path)
     {
-        var ext = Path.GetExtension(_active!.File.Path);
+        var ext = Path.GetExtension(path).ToLowerInvariant();
         var prefix = ext is ".yml" or ".yaml" or ".properties" or ".py" or ".sh" or ".ps1" ? "#" : "//";
         if (ext is ".xml" or ".xaml" or ".html" or ".md" or ".json") { SetStatus("此文件类型暂不提供行注释快捷键。"); return; }
-        var first = Editor.Document.GetLineByOffset(Editor.SelectionStart).LineNumber;
-        var last = Editor.Document.GetLineByOffset(Editor.SelectionStart + Math.Max(0, Editor.SelectionLength - 1)).LineNumber;
-        var lines = Enumerable.Range(first, last - first + 1).Select(Editor.Document.GetLineByNumber).ToArray();
-        var remove = lines.All(l => Editor.Document.GetText(l).TrimStart().StartsWith(prefix));
-        using (Editor.Document.RunUpdate())
+        var first = editor.Document.GetLineByOffset(editor.SelectionStart).LineNumber;
+        var last = editor.Document.GetLineByOffset(editor.SelectionStart + Math.Max(0, editor.SelectionLength - 1)).LineNumber;
+        var lines = Enumerable.Range(first, last - first + 1).Select(editor.Document.GetLineByNumber).ToArray();
+        var remove = lines.All(l => editor.Document.GetText(l).TrimStart().StartsWith(prefix));
+        using (editor.Document.RunUpdate())
             foreach (var line in lines.Reverse())
             {
-                var value = Editor.Document.GetText(line); var spaces = value.Length - value.TrimStart().Length;
-                if (remove) Editor.Document.Remove(line.Offset + spaces, prefix.Length + (value.Length > spaces + prefix.Length && value[spaces + prefix.Length] == ' ' ? 1 : 0));
-                else Editor.Document.Insert(line.Offset + spaces, prefix + " ");
+                var value = editor.Document.GetText(line); var spaces = value.Length - value.TrimStart().Length;
+                if (remove) editor.Document.Remove(line.Offset + spaces, prefix.Length + (value.Length > spaces + prefix.Length && value[spaces + prefix.Length] == ' ' ? 1 : 0));
+                else editor.Document.Insert(line.Offset + spaces, prefix + " ");
             }
     }
 
@@ -542,7 +606,7 @@ public partial class MainWindow : Window
     {
         var picker = new OpenFolderDialog { Title = UiText.Current.Translate("选择本地项目 / Git 仓库"), Multiselect = false };
         if (_workspace != null && Directory.Exists(_workspace.Root)) picker.InitialDirectory = Path.GetFullPath(_workspace.Root);
-        if (picker.ShowDialog(this) == true) await OpenWorkspaceAsync(picker.FolderName);
+        if (picker.ShowDialog(this) == true) await OpenProjectInstanceAsync(picker.FolderName);
     }
     private async Task RefreshWorkspaceAsync()
     {
@@ -553,22 +617,58 @@ public partial class MainWindow : Window
         var snapshot = await WorkspaceService.LoadAsync(root, _git, token);
         token.ThrowIfCancellationRequested();
         _workspace = snapshot;
+        ClearDefinitionHover();
         RenderProjectTree();
         SpringList.ItemsSource = snapshot.Spring;
         PopulateMavenTree();
         UpdateStructure();
 
         // Reload clean buffers changed by Git/AI tools, keeping dirty buffers intact.
-        foreach (var doc in _documents.Where(d => !d.Dirty).ToArray())
+        foreach (var doc in _documents.Where(d => !d.Dirty && !d.Saving).ToArray())
         {
-            if (!File.Exists(doc.File.Path)) continue;
-            var fresh = await FileService.ReadAsync(doc.File.Path, token);
-            if (fresh.Hash == doc.File.Hash || doc.Dirty) continue;
-            _loadingDocument = true; doc.File = fresh; doc.Document.Text = fresh.Text; _loadingDocument = false;
+            try
+            {
+                if (File.Exists(doc.File.Path))
+                {
+                    var fresh = await FileService.ReadAsync(doc.File.Path, token);
+                    token.ThrowIfCancellationRequested();
+                    if (_documents.Contains(doc)) ReloadCleanDocument(doc, fresh);
+                }
+            }
+            catch (FileNotFoundException) { }
+            catch (DirectoryNotFoundException) { }
         }
+        UpdateTypeUsages();
+        UpdateStructure();
         await RefreshGitAsync();
         if (_bottom == BottomTool.Log) await LoadHistoryAsync();
         SetStatus("索引与 Git 状态已刷新");
+    }
+    private Task ReloadAllFromDiskAsync() => RefreshWorkspaceAsync();
+
+    private void ReloadCleanDocument(DocumentState document, OpenedFile fresh)
+    {
+        if (document.Dirty || document.Saving || fresh.Hash == document.File.Hash) return;
+        var editor = CodeEditor;
+        if (editor?.Document != document.Document) editor = null;
+        int offset = editor?.CaretOffset ?? 0;
+        double scroll = editor?.VerticalOffset ?? 0;
+        ClearDefinitionHover();
+        _loadingDocument = true;
+        try
+        {
+            document.File = fresh;
+            document.Document.Text = fresh.Text;
+            document.Document.UndoStack.ClearAll();
+            if (editor != null)
+            {
+                editor.CaretOffset = Math.Min(offset, document.Document.TextLength);
+                editor.ScrollToVerticalOffset(scroll);
+            }
+        }
+        finally { _loadingDocument = false; }
+        if (document == _active) QueueLineChanges();
+        if (document == _diffDocument) QueueDiffUpdate();
     }
     private async Task GoBackAsync()
     {
@@ -585,10 +685,9 @@ public partial class MainWindow : Window
                 var fresh = await FileService.ReadAsync(doc.File.Path);
                 if (fresh.Hash == doc.File.Hash) return;
                 if (doc.Dirty) { SetStatus("当前文件被外部程序修改；编辑内容已保留，保存前会再次确认。"); return; }
-                var offset = Editor.CaretOffset;
-                _loadingDocument = true; doc.File = fresh; doc.Document.Text = fresh.Text;
-                if (_active == doc) Editor.CaretOffset = Math.Min(offset, doc.Document.TextLength);
-                _loadingDocument = false;
+                if (!_documents.Contains(doc)) return;
+                ReloadCleanDocument(doc, fresh);
+                UpdateTypeUsages();
                 SetStatus("已同步 AI / 外部工具修改的文件 · F5 可更新代码索引");
             });
     }
@@ -598,6 +697,8 @@ public partial class MainWindow : Window
         if (_commandBusy && !Dialogs.Confirm(this, "仍有 Git / Maven 命令运行中，关闭会停止该命令。是否继续？")) { e.Cancel = true; return; }
         RememberSizes(); _layout.Save();
         _command?.Cancel(); _workspaceLoad?.Cancel(); _diffLoad?.Cancel(); _historyLoad?.Cancel(); _detailLoad?.Cancel(); _memoryTimer.Stop(); _outputTimer.Stop();
+        _baselineLoad?.Cancel(); _lineChangeTimer.Stop();
+        _diffUpdateTimer.Stop();
         CloseTerminals();
     }
 
@@ -607,7 +708,10 @@ public partial class MainWindow : Window
     private async void BackClick(object sender, RoutedEventArgs e) => await Guard(GoBackAsync);
     private async void RefreshClick(object sender, RoutedEventArgs e) => await Guard(RefreshWorkspaceAsync);
     private async void GitRefreshClick(object sender, RoutedEventArgs e) => await Guard(RefreshGitAsync);
-    private async void TreeDoubleClick(object sender, MouseButtonEventArgs e) { if (FileTree.SelectedItem is TreeViewItem { Tag: FileNode { IsFile: true } node }) { e.Handled = true; await Guard(() => OpenFileAsync(node.Path)); } }
+    private async void TreeClick(object sender, MouseButtonEventArgs e)
+    {
+        if (TreeItemAt(e.OriginalSource) is TreeViewItem { Tag: FileNode { IsFile: true } node }) { e.Handled = true; await Guard(() => OpenFileAsync(node.Path)); }
+    }
     private async void TreeOpenClick(object sender, RoutedEventArgs e) { if (FileTree.SelectedItem is TreeViewItem { Tag: FileNode { IsFile: true } node }) await Guard(() => OpenFileAsync(node.Path)); }
     private async void TreeKeyDown(object sender, KeyEventArgs e) { if (e.Key == Key.Enter && FileTree.SelectedItem is TreeViewItem { Tag: FileNode { IsFile: true } node }) { e.Handled = true; await Guard(() => OpenFileAsync(node.Path)); } }
     private void CopyPathClick(object sender, RoutedEventArgs e) { if (FileTree.SelectedItem is TreeViewItem { Tag: FileNode node }) Clipboard.SetText(node.Path); }
@@ -627,15 +731,15 @@ public partial class MainWindow : Window
         await using (var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write)) { }
         await RefreshWorkspaceAsync(); await OpenFileAsync(Relative(path));
     });
-    private async void EditorMouseDown(object sender, MouseButtonEventArgs e)
+    private async void ChangeClick(object sender, MouseButtonEventArgs e)
     {
-        if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) return;
-        var position = Editor.GetPositionFromPoint(e.GetPosition(Editor));
-        if (position != null) { e.Handled = true; await Guard(() => NavigateDefinitionAsync(Editor.Document.GetOffset(position.Value.Location))); }
-    }
-    private async void ChangeDoubleClick(object sender, MouseButtonEventArgs e)
-    {
-        if (ItemAt<ListBoxItem>(ChangesList, e.OriginalSource) != null) await Guard(OpenSelectedChangeAsync);
+        if (Keyboard.Modifiers != ModifierKeys.None) return;
+        for (var node = e.OriginalSource as DependencyObject; node != null; node = node is Visual ? VisualTreeHelper.GetParent(node) : LogicalTreeHelper.GetParent(node))
+        {
+            if (node is System.Windows.Controls.Primitives.ButtonBase) return;
+            if (node is ListBoxItem) break;
+        }
+        if (ItemAt<ListBoxItem>(ChangesList, e.OriginalSource) != null) { e.Handled = true; await Guard(OpenSelectedChangeAsync); }
     }
     private async void PreviewChangeClick(object sender, RoutedEventArgs e) => await Guard(OpenSelectedChangeAsync);
     private async void EditChangeClick(object sender, RoutedEventArgs e) => await Guard(OpenSelectedSourceAsync);
@@ -696,7 +800,7 @@ public partial class MainWindow : Window
     });
     private async void DiscardClick(object sender, RoutedEventArgs e) => await Guard(DiscardSelectionAsync);
     private async void HistoryClick(object sender, RoutedEventArgs e) => await Guard(LoadHistoryAsync);
-    private async void SpringDoubleClick(object sender, MouseButtonEventArgs e) { if (SpringList.SelectedItem is SearchHit hit) await Guard(() => OpenFileAsync(hit.Path, hit.Line)); }
+    private async void SpringDoubleClick(object sender, MouseButtonEventArgs e) { if (ItemAt<ListBoxItem>(SpringList, e.OriginalSource) != null && SpringList.SelectedItem is SearchHit hit) await Guard(() => OpenFileAsync(hit.Path, hit.Line)); }
 
     private async void MavenDoubleClick(object sender, MouseButtonEventArgs e)
     {

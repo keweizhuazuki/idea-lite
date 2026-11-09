@@ -225,7 +225,8 @@ public partial class MainWindow
         Visit(FileTree, false);
         FileTree.Items.Clear();
         var artifact = _workspace.Maven.FirstOrDefault(module => module.Path == "pom.xml")?.Artifact;
-        var rootName = Path.GetFileName(_workspace.Root) + (string.IsNullOrWhiteSpace(artifact) ? "" : " [" + artifact + "]");
+        var name = Path.GetFileName(_workspace.Root);
+        var rootName = name + (string.IsNullOrWhiteSpace(artifact) || artifact == name ? "" : " [" + artifact + "]");
         var root = new TreeViewItem { Tag = new FileNode("", false), Header = FileHeader(rootName, "Project", _workspace.Root), IsExpanded = true, Style = (Style)FindResource("ProjectTreeItem") };
         FileTree.Items.Add(root);
         PopulateTree(root, "");
@@ -260,7 +261,7 @@ public partial class MainWindow
     }
     private async void StructureOpen(object sender, MouseButtonEventArgs e)
     {
-        if (StructureList.SelectedItem is SearchHit hit) await Guard(() => OpenFileAsync(hit.Path, hit.Line));
+        if (ItemAt<ListBoxItem>(StructureList, e.OriginalSource) != null && StructureList.SelectedItem is SearchHit hit) await Guard(() => OpenFileAsync(hit.Path, hit.Line));
     }
     private static T? ItemAt<T>(ItemsControl parent, object origin) where T : DependencyObject =>
         origin is DependencyObject node ? ItemsControl.ContainerFromElement(parent, node) as T : null;
@@ -295,7 +296,7 @@ public partial class MainWindow
         MenuAction(menu, "打开项目…", ChooseProjectAsync, "Ctrl+O");
         if (_layout.Recent.Count > 0) menu.Items.Add(new Separator());
         foreach (var path in _layout.Recent.Where(Directory.Exists))
-            MenuAction(menu, path, () => OpenWorkspaceAsync(path));
+            MenuAction(menu, path, () => OpenProjectInstanceAsync(path));
         menu.IsOpen = true;
     }
     private void MainMenuClick(object sender, RoutedEventArgs e)
@@ -305,6 +306,7 @@ public partial class MainWindow
         var file = Group("文件");
         MenuAction(file, "打开项目…", ChooseProjectAsync, "Ctrl+O");
         MenuAction(file, "保存", () => SaveAsync(), "Ctrl+S");
+        MenuAction(file, "从磁盘重新加载全部文件", ReloadAllFromDiskAsync, "Ctrl+Alt+Y");
         var view = Group("视图");
         MenuAction(view, "项目", () => { SelectLeft(LeftTool.Project, false); return Task.CompletedTask; }, "Alt+1");
         MenuAction(view, "提交", () => ActivateCommitAsync(false), "Alt+0");
@@ -370,6 +372,7 @@ public partial class MainWindow
         if (e.PropertyName != nameof(UiText.Language)) return;
         _layout.Language = UiText.Current.Language;
         if (LogRefs.Items.Count > 0) RenderRefs();
+        UpdateTypeUsages();
         RebuildTabs();
         if (_outputMessage != null) OutputEditor.Text = UiText.Current.Translate(_outputMessage);
     }

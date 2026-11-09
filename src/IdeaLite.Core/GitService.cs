@@ -115,6 +115,12 @@ public sealed partial class GitService(string root)
         return result.EnsureSuccess().Output;
     }
 
+    public Task<string> HeadTextAsync(string path, CancellationToken token = default)
+    {
+        FileService.SafePath(Root, path);
+        return ReadVersionAsync("HEAD", path, token);
+    }
+
     public async Task<GitDiff> DiffAsync(GitChange change, bool staged, CancellationToken token = default)
     {
         var oldPath = staged ? change.OriginalPath ?? change.Path : change.Path;

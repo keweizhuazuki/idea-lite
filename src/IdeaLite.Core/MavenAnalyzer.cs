@@ -11,6 +11,8 @@ public sealed record MavenDependency(string Group, string Artifact, string Versi
 public sealed record MavenModule(string Path, string Artifact, string Group, string Version,
     IReadOnlyList<string> Modules, IReadOnlyList<MavenDependency> Dependencies, IReadOnlyDictionary<string, string> Properties, string? Error = null)
 {
+    public IReadOnlyDictionary<(string Group, string Artifact), string> ManagedVersions { get; init; } =
+        new Dictionary<(string, string), string>();
     public override string ToString() => $"{Artifact}  {Version}  · {Path}";
 }
 
@@ -40,19 +42,25 @@ public static class MavenAnalyzer
             }
             return value;
         }
-        var managed = project.Elements().FirstOrDefault(e => e.Name.LocalName == "dependencyManagement")?.Descendants().Where(e => e.Name.LocalName == "dependency").ToArray() ?? [];
+        var managed = new Dictionary<(string, string), string>();
+        if (workspaceParent != null && Resolve(Value(parent, "groupId")) == workspaceParent.Group &&
+            Resolve(Value(parent, "artifactId")) == workspaceParent.Artifact && Resolve(Value(parent, "version")) == workspaceParent.Version)
+        {
+            foreach (var entry in workspaceParent.ManagedVersions) managed.Add(entry.Key, entry.Value);
+        }
+        foreach (var item in project.Elements().FirstOrDefault(e => e.Name.LocalName == "dependencyManagement")?.Descendants().Where(e => e.Name.LocalName == "dependency") ?? [])
+        {
+            var managedVersion = Resolve(Value(item, "version"));
+            if (managedVersion.Length > 0) managed[(Resolve(Value(item, "groupId")), Resolve(Value(item, "artifactId")))] = managedVersion;
+        }
         var dependencies = new List<MavenDependency>();
         foreach (var item in project.Elements().FirstOrDefault(e => e.Name.LocalName == "dependencies")?.Elements().Where(e => e.Name.LocalName == "dependency") ?? [])
         {
             var g = Resolve(Value(item, "groupId")); var a = Resolve(Value(item, "artifactId")); var v = Resolve(Value(item, "version"));
-            if (v.Length == 0)
-            {
-                var match = managed.FirstOrDefault(d => Resolve(Value(d, "groupId")) == g && Resolve(Value(d, "artifactId")) == a);
-                v = Resolve(Value(match, "version"));
-            }
+            if (v.Length == 0) v = managed.GetValueOrDefault((g, a), "");
             dependencies.Add(new(g, a, v.Length == 0 ? "由父 POM / BOM 管理" : v, Value(item, "scope") is { Length: > 0 } scope ? scope : "compile"));
         }
         var modules = project.Elements().FirstOrDefault(e => e.Name.LocalName == "modules")?.Elements().Select(e => Resolve(e.Value.Trim())).ToArray() ?? [];
-        return new(relativePath, artifact, Resolve(group), Resolve(version), modules, dependencies, properties);
+        return new(relativePath, artifact, Resolve(group), Resolve(version), modules, dependencies, properties) { ManagedVersions = managed };
     }
 }

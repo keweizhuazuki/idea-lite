@@ -38,6 +38,13 @@ Idea Lite 就是为这个场景做的：一个 Windows 原生的代码编辑器�
 - AI 根据勾选文件相对于 HEAD 的工作区差异生成说明，包含新文件、删除和重命名；Amend 同时提供原提交内容。生成时会向所选服务商发送这些差异、分支和现有说明，单次最多 100 个文件、16,000 字符的差异上下文，按文件分配预算，大文件/二进制省略内容并明确标记。草稿最多 1,000 字符，分支最多 256 字符，输出上限 256 tokens；只进行一次生成请求，不扫描全仓库或开启多轮代理。中文上下文保留原文，不额外转为 Unicode 转义。完成后在状态栏显示服务商返回的真实输入/输出 token 数（若响应缺失 usage 则不虚构用量）；字符上限不等于精确 token 上限。
 - 分支或草稿中的 AIDF/AIGC 任务号会保留，格式为 `<任务号> <类型> <摘要>`，不自动提交。再次点击取消；请求中修改说明会先展示结果供确认，项目、选择或文件变化则拒绝回填旧结果。保存勾选文件后再生成。
 - AI Commit Settings 中可查看、编辑并保存完整内置提示词，OpenAI 和 DeepSeek 共用这份设置；恢复默认只修改当前编辑框，保存后生效，取消则放弃编辑。预览会显示按当前分支、现有说明和输出语言展开后的 system 提示词，不调用 API。变量支持 `{task_rule}`、`{task_id}`、`{language_rule}`、`{language}`，其他大括号（如 JSON 示例）原样保留，提示词最多 4,000 字符。任务号由本地按“现有说明优先，其次分支名”匹配 AIDF/AIGC 格式，并非写死某个编号；删除 `{task_rule}` 可取消自动前缀要求。
+
+- 全局滚动条使用 8 px 轨道；Diff 两侧右边显示整份文件的改动色带，点击色块可同步跳转。普通编辑器的行号旁显示相对 Git HEAD 的新增、修改与删除标记，包含未保存编辑，暂存不会清除标记。
+- 工作区 Diff 的右栏可直接编辑，`Ctrl+S` 保存，也支持替换、复制行、行注释和缩进快捷键。两栏可查找文本、跳行和跳转源码定义。文件标签与 Diff 共享草稿和撤销历史，字符高亮随编辑更新。暂存和提交历史的快照为只读。
+- Java 类型声明行显示已索引源码中的用法数。点击数字可筛选引用，单击或按 Enter 跳到对应的文件、行和列。通过 **File → Reload All from Disk** 或 `Ctrl+Alt+Y` 刷新索引和未编辑的标签，未保存的草稿会保留。
+- Ctrl+单击显式导入的 Java 类型时，也可以查看直接 Maven 依赖的本地 `-sources.jar`。优先使用构建设置中的本地仓库，然后检查用户目录下的 `.m2/repository`。依赖源码以只读窗口打开。
+- 打开项目与最近项目始终启动新的 Idea Lite 进程，当前窗口及未保存内容继续保留。项目树同级目录保持固定缩进；文件、改动、搜索结果及编译错误支持单击打开。按住 Ctrl 悬停在可解析的项目源码符号上会显示下划线和手形光标，Ctrl+单击跳转定义。
+- Search Everywhere 打开前检查项目文件列表，外部新增的未跟踪文件可直接搜索，并沿用 Git 忽略规则；没有文件增删时复用已有索引。点击搜索窗口外、切换应用或按 Esc 均可关闭。
 - Alt+F12 在底部打开内置 Git Bash，`+` 可创建多个独立会话，标签可切换和关闭，保留各自的工作目录和历史命令。终端使用系统 ConPTY 与原生 Windows Terminal 控件，支持 ANSI 颜色、中文、交互输入、复制粘贴和 Ctrl+C；关闭会话或窗口会结束对应子进程。
 
 布局参考 JetBrains 的 [IDEA 界面](https://www.jetbrains.com/help/idea/guided-tour-around-the-user-interface.html)、[提交窗口](https://www.jetbrains.com/help/idea/commit-and-push-changes.html)和 [Git 日志](https://www.jetbrains.com/help/idea/log-tab.html)。图标与界面代码由本项目绘制和实现。
@@ -143,6 +150,7 @@ Get-Process IdeaLite | Select-Object Id, WorkingSet64, PrivateMemorySize64
 | F7 / Shift+F7 | 下一个 / 上一个差异 |
 | Ctrl+Shift+F12 | 收起 / 恢复两侧面板，给代码或 Diff 更多空间 |
 | Ctrl+滚轮 / F5 | 缩放编辑器字体 / 刷新项目索引和 Git |
+| Ctrl+Alt+Y | 从磁盘重新加载全部文件，保留未保存草稿 |
 
 ## Git 与冲突工作流
 
@@ -195,7 +203,7 @@ dotnet run --project src/IdeaLite -- 'D:\code\your-project'
 
 核心行为/集成测试覆盖真实 Git 仓库中的暂存/未暂存、首次提交、中文和带空格路径、重命名删除、合并冲突、stash、本地远程推拉，以及编码、风格、搜索、外部修改保护、进程超时、实时输出、Windows 原生项目路径、Maven 命令参数传递和按文件提交范围保护。自动 WPF 检查使用临时命令脚本模拟构建，不运行实际 Maven；窗口检查会短暂显示测试窗口。测试不访问外部 Git 服务，失败会保留临时现场。
 
-当前源码在安装了 Git for Windows 的 Windows 上执行 38 项核心检查，以及 16 项 WPF 检查；额外传入 `--with-wsl --keep` 执行 3 项 WSL 参数传递、进程组停止和超时检查。`--keep` 保留临时现场，避免 WSL 刚退出时目录句柄释放的延迟影响清理。WPF 检查还覆盖 Java 分色、真实字体字形来源与行距、项目树层级和导航、提示框对比度、Git Bash 的路径参数、按项目保存任务、生命周期双击、编译错误跳转、双语占位符、语言持久化与编辑状态保护、Windows 凭据保存、AI 设置、提示词编辑/恢复/预览/持久化、生成取消与草稿/差异变化保护。AI 接口测试使用本地 HTTP 模拟响应，不消耗 API 额度，不代表真实账号已联网验证。接口依据：[OpenAI](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)、[DeepSeek](https://api-docs.deepseek.com/)。
+当前源码在安装了 Git for Windows 的 Windows 上执行 41 项核心检查，以及 30 项 WPF 检查；额外传入 `--with-wsl --keep` 执行 3 项 WSL 参数传递、进程组停止和超时检查。`--keep` 保留临时现场，避免 WSL 刚退出时目录句柄释放的延迟影响清理。WPF 检查还覆盖 Java 分色、真实字体字形来源与行距、项目树层级和导航、细滚动条、Diff 总览跳转与字符级高亮、编辑改动色条、单击导航、Ctrl 悬停、非模态搜索，以及原生 Git Bash 多会话、中文与 ANSI、历史命令、Ctrl+C、缩放、进程清理和括号粘贴。既有构建、双语、Windows 凭据与 AI 生成回归仍保留。AI 接口测试使用本地 HTTP 模拟响应，不消耗 API 额度，不代表真实账号已联网验证。接口依据：[OpenAI](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)、[DeepSeek](https://api-docs.deepseek.com/)。
 
 “文件 → 打开项目”会把 Git 返回的路径规范化后传给系统文件夹选择器，避免 `D:/...` 路径触发 Windows Shell 的 `Value does not fall within the expected range`。发生其他异常时，错误窗口提供调用堆栈；设置目录内的 `last-error.log` 只保存异常类型和堆栈，不记录异常消息、命令输出或源码内容。
 

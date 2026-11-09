@@ -15,7 +15,10 @@ public static partial class JavaAnalyzer
     [GeneratedRegex("@(Get|Post|Put|Delete|Patch|Request)Mapping\\b(?:\\s*\\(([^)]*)\\))?")]
     private static partial Regex Mappings();
 
-    public static void Analyze(string path, string text, List<SearchHit> symbols, List<SearchHit> spring)
+    public static void Analyze(string path, string text, List<SearchHit> symbols, List<SearchHit> spring) =>
+        AnalyzeSource(path, text, symbols, spring);
+
+    internal static string AnalyzeSource(string path, string text, List<SearchHit> symbols, List<SearchHit> spring)
     {
         var firstSymbol = symbols.Count;
         // Preserve offsets/newlines while masking comments. This is a bounded source index, not a Java compiler.
@@ -61,6 +64,98 @@ public static partial class JavaAnalyzer
             if (verb.Length == 0) verb = "ANY";
             spring.Add(new(verb + " " + (prefix.TrimEnd('/') + "/" + route.TrimStart('/')).TrimEnd('/'), path, Line(mapping.Index), "端点", Path.GetFileName(path)));
         }
+        return declarations;
+    }
+
+    [GeneratedRegex(@"\b(package|import)\s+(?:static\s+)?([\w$.]+(?:\.\*)?)\s*;")]
+    private static partial Regex Directives();
+    [GeneratedRegex(@"[\p{L}\p{Nl}_$][\w$]*")]
+    private static partial Regex Identifiers();
+    [GeneratedRegex(@"(?m)(?:^|[;{}])\s*(?:(?:public|protected|private)\s+)?([\w$]+)\s*\([^;{}]*\)\s*(?:throws\s+[\w.,\s]+)?\{")]
+    private static partial Regex Constructors();
+
+    public static IEnumerable<(string Name, int Offset)> DeclaredTypes(string source) =>
+        Types().Matches(Mask(source, true)).Select(match => (match.Groups[1].Value, match.Groups[1].Index));
+
+    public static string? ExplicitTypeImport(string source, string name)
+    {
+        var suffix = "." + name;
+        if (!source.Contains(suffix, StringComparison.Ordinal)) return null;
+        return Directives().Matches(Mask(source, true)).Where(match => match.Groups[1].Value == "import")
+            .Select(match => match.Groups[2].Value).FirstOrDefault(import => import.EndsWith(suffix, StringComparison.Ordinal));
+    }
+
+    internal static IReadOnlyDictionary<SearchHit, IReadOnlyList<JavaTypeReference>> IndexTypeUsages(
+        IReadOnlyList<SearchHit> symbols, IEnumerable<(string Path, string Code)> sources, CancellationToken token)
+    {
+        var byName = symbols.Where(s => s.Kind == "类型" && Path.GetExtension(s.Path) == ".java")
+            .GroupBy(s => s.Name, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.ToArray(), StringComparer.Ordinal);
+        var names = byName.GetAlternateLookup<ReadOnlySpan<char>>();
+        var usages = new Dictionary<SearchHit, List<JavaTypeReference>>();
+        foreach (var (path, code) in sources)
+        {
+            token.ThrowIfCancellationRequested();
+            var directives = Directives().Matches(code);
+            string package = directives.FirstOrDefault(m => m.Groups[1].Value == "package")?.Groups[2].Value ?? "";
+            var imports = directives.Where(m => m.Groups[1].Value == "import").Select(m => m.Groups[2].Value).ToArray();
+            var packages = imports.Where(i => i.EndsWith(".*", StringComparison.Ordinal)).Select(i => i[..^1]).ToHashSet(StringComparer.Ordinal);
+            var explicitImports = imports.Where(i => !i.EndsWith(".*", StringComparison.Ordinal))
+                .ToLookup(i => i[(i.LastIndexOf('.') + 1)..], StringComparer.Ordinal);
+            var declarations = Types().Matches(code).Select(m => m.Groups[1]).ToArray();
+            var typeNames = declarations.Select(g => g.Value).ToHashSet(StringComparer.Ordinal);
+            var excluded = declarations.Select(g => g.Index).ToHashSet();
+            foreach (Match constructor in Constructors().Matches(code))
+                if (typeNames.Contains(constructor.Groups[1].Value)) excluded.Add(constructor.Groups[1].Index);
+
+            var start = directives.Count > 0 ? directives[^1].Index + directives[^1].Length : 0;
+            int line = 1, lineStart = 0;
+            foreach (var identifier in Identifiers().EnumerateMatches(code.AsSpan(start)))
+            {
+                int offset = start + identifier.Index;
+                if (excluded.Contains(offset) || !names.TryGetValue(code.AsSpan(offset, identifier.Length), out var candidates)) continue;
+                int qualifier = offset;
+                while (qualifier > start && (char.IsLetterOrDigit(code[qualifier - 1]) || code[qualifier - 1] is '_' or '$' or '.')) qualifier--;
+                SearchHit? target;
+                if (qualifier < offset && code[offset - 1] == '.')
+                {
+                    var qualified = code.AsSpan(qualifier, offset + identifier.Length - qualifier);
+                    target = null;
+                    foreach (var candidate in candidates)
+                    {
+                        if (!qualified.SequenceEqual(candidate.Detail)) continue;
+                        if (target != null) { target = null; break; }
+                        target = candidate;
+                    }
+                }
+                else
+                {
+                    var name = candidates[0].Name;
+                    var explicitNames = explicitImports[name];
+                    var samePackage = package.Length == 0 ? name : package + "." + name;
+                    int best = 0;
+                    target = null;
+                    foreach (var candidate in candidates)
+                    {
+                        int rank = candidate.Path == path ? 4 : explicitNames.Contains(candidate.Detail) ? 3 :
+                            explicitNames.Any() ? 0 : candidate.Detail == samePackage ? 2 :
+                            packages.Contains(candidate.Detail[..^name.Length]) ? 1 : 0;
+                        if (rank > best) { best = rank; target = candidate; }
+                        else if (rank > 0 && rank == best) target = null;
+                    }
+                }
+                if (target == null) continue;
+                // References arrive in source order, so line and column advance in one pass per file.
+                int newline;
+                while ((newline = code.IndexOf('\n', lineStart, offset - lineStart)) >= 0)
+                {
+                    line++;
+                    lineStart = newline + 1;
+                }
+                if (!usages.TryGetValue(target, out var references)) usages.Add(target, references = []);
+                references.Add(new(path, line, offset - lineStart + 1));
+            }
+        }
+        return usages.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<JavaTypeReference>)pair.Value);
     }
 
     private static string Mask(string text, bool maskStrings)

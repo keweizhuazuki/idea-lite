@@ -172,6 +172,39 @@ await Test("Java types/methods and Spring routes are searchable", () =>
     return Task.CompletedTask;
 });
 
+await Test("Java class usages resolve source packages and ignore imports, declarations and literals", async () =>
+{
+    var git = await Repository("java-usages");
+    await File.WriteAllTextAsync(Path.Combine(git.Root, "Order.java"), """
+        package shop;
+        public class Order {
+            public Order() {}
+        }
+        """);
+    await File.WriteAllTextAsync(Path.Combine(git.Root, "OtherOrder.java"), "package other;\nclass Order {}\n");
+    await File.WriteAllTextAsync(Path.Combine(git.Root, "Buyer.java"), """
+        package client;
+        import shop.Order;
+        class Buyer {
+            Order order = new Order();
+            other.Order unrelated;
+            String literal = "Order";
+            // Order commented;
+        }
+        """);
+    await File.WriteAllTextAsync(Path.Combine(git.Root, "Wildcard.java"), "package client;\nimport shop.*;\nclass Wildcard { Order order; }\n");
+    await File.WriteAllTextAsync(Path.Combine(git.Root, "SamePackage.java"), "package shop;\nclass SamePackage { Order order; }\n");
+    await File.WriteAllTextAsync(Path.Combine(git.Root, "External.java"), "package client;\nimport external.Order;\nclass External { Order order; }\n");
+    var snapshot = await WorkspaceService.LoadAsync(git.Root, git, default);
+    var orders = snapshot.Symbols.Where(s => s.Name == "Order" && s.Kind == "类型").ToDictionary(s => s.Detail);
+    var references = snapshot.JavaTypeUsages[orders["shop.Order"]];
+    Equal(4, references.Count);
+    True(references.Where(reference => reference.Path == "Buyer.java").SequenceEqual(
+        [new JavaTypeReference("Buyer.java", 4, 5), new JavaTypeReference("Buyer.java", 4, 23)]),
+        "Multiple uses on one line should retain their own columns");
+    Equal(new JavaTypeReference("Buyer.java", 5, 11), snapshot.JavaTypeUsages[orders["other.Order"]].Single());
+});
+
 await Test("Workspace respects Git ignores, content regex and cancellation", async () =>
 {
     var git = await Repository("workspace");
@@ -184,6 +217,34 @@ await Test("Workspace respects Git ignores, content regex and cancellation", asy
     var hits = await WorkspaceService.SearchTextAsync(snapshot, "void\\s+hello", false, true, default); Equal(1, hits.Count); Equal(2, hits[0].Line);
     using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
     await Throws<OperationCanceledException>(() => WorkspaceService.SearchTextAsync(snapshot, "hello", false, false, cancelled.Token));
+});
+
+await Test("Search refresh discovers external untracked files and preserves Git ignore boundaries", async () =>
+{
+    var git = await Repository("search-refresh");
+    await File.WriteAllTextAsync(Path.Combine(git.Root, ".gitignore"), "private/\n");
+    var snapshot = await WorkspaceService.LoadAsync(git.Root, git, default);
+    True(ReferenceEquals(snapshot, await WorkspaceService.RefreshFilesAsync(snapshot, git, default)));
+    Directory.CreateDirectory(Path.Combine(git.Root, "private"));
+    await File.WriteAllTextAsync(Path.Combine(git.Root, "private", "Private.java"), "class Private {}\n");
+    await File.WriteAllTextAsync(Path.Combine(git.Root, "FreshLink.java"), "public class FreshLink {}\n");
+    var fresh = await WorkspaceService.RefreshFilesAsync(snapshot, git, default);
+    True(WorkspaceService.Search(fresh, "FreshLink", "files").Any(hit => hit.Path == "FreshLink.java"));
+    True(WorkspaceService.Search(fresh, "FreshLink", "classes").Any(hit => hit.Name == "FreshLink"));
+    True(!fresh.Files.Any(path => path.StartsWith("private/")));
+    File.Delete(Path.Combine(git.Root, "FreshLink.java"));
+    True(!WorkspaceService.Search(await WorkspaceService.RefreshFilesAsync(fresh, git, default), "FreshLink").Any());
+});
+
+await Test("HEAD baseline distinguishes an unborn branch and excludes staged changes", async () =>
+{
+    var git = await Repository("head-baseline");
+    Equal("", await git.HeadTextAsync("Example.java"));
+    const string source = "class Example {}\n";
+    await File.WriteAllTextAsync(Path.Combine(git.Root, "Example.java"), source); await git.StageAsync(["Example.java"]);
+    (await git.RunAsync(["commit", "-m", "fixture subject", "-m", "A full commit body.\nSecond body line."])).EnsureSuccess();
+    await File.WriteAllTextAsync(Path.Combine(git.Root, "Example.java"), "class Changed {}\n"); await git.StageAsync(["Example.java"]);
+    Equal(source, await git.HeadTextAsync("Example.java"));
 });
 
 await Test("Java index distinguishes comments, strings and fields", () =>

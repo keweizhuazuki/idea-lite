@@ -12,6 +12,7 @@ public sealed class DiffScrollSynchronizer
     private long _generation;
     private bool _queued;
     private double _lastOffset = double.NaN;
+    private int[]? _alignedToRight, _rightToAligned;
 
     public DiffScrollSynchronizer(TextEditor left, TextEditor right)
     {
@@ -20,12 +21,54 @@ public sealed class DiffScrollSynchronizer
         {
             editor.PreviewMouseWheel += (_, _) => Drive(editor);
             editor.PreviewMouseLeftButtonDown += (_, _) => Drive(editor);
+            editor.PreviewTextInput += (_, _) => Drive(editor);
             editor.PreviewKeyDown += (_, e) =>
             {
                 if (e.Key is Key.Up or Key.Down or Key.PageUp or Key.PageDown or Key.Home or Key.End) Drive(editor);
             };
             editor.TextArea.TextView.ScrollOffsetChanged += (_, _) => Queue(editor);
         }
+    }
+
+    public void SetRightLines(int?[]? positions)
+    {
+        Reset();
+        _alignedToRight = _rightToAligned = null;
+        if (positions == null || positions.Length == 0) return;
+        _alignedToRight = new int[positions.Length];
+        _rightToAligned = new int[positions.Count(line => line.HasValue)];
+        int next = Math.Max(1, _rightToAligned.Length);
+        for (int row = positions.Length - 1; row >= 0; row--)
+        {
+            if (positions[row] is int line)
+            {
+                next = line;
+                _rightToAligned[line - 1] = row + 1;
+            }
+            _alignedToRight[row] = next;
+        }
+    }
+
+    public int RightLine(int row) => _alignedToRight == null ? row :
+        _alignedToRight[Math.Clamp(row - 1, 0, _alignedToRight.Length - 1)];
+
+    public int AlignedLine(int line) => _rightToAligned is not { Length: > 0 } rows ? line :
+        rows[Math.Clamp(line - 1, 0, rows.Length - 1)];
+
+    private double CorrespondingOffset(TextEditor source, TextEditor follower)
+    {
+        if (_alignedToRight == null) return source.VerticalOffset;
+        var view = source.TextArea.TextView;
+        int line = view.GetDocumentLineByVisualTop(source.VerticalOffset).LineNumber;
+        int target = ReferenceEquals(source, _left) ? RightLine(line) : AlignedLine(line);
+        double withinLine = source.VerticalOffset - view.GetVisualTopByDocumentLine(line);
+        return follower.TextArea.TextView.GetVisualTopByDocumentLine(Math.Clamp(target, 1, follower.Document.LineCount)) + withinLine;
+    }
+
+    public void AlignFromRight()
+    {
+        Drive(_right);
+        Queue(_right);
     }
 
     private void Drive(TextEditor editor)
@@ -54,7 +97,7 @@ public sealed class DiffScrollSynchronizer
             _queued = false;
             _lastOffset = source.VerticalOffset;
             var follower = ReferenceEquals(source, _left) ? _right : _left;
-            follower.ScrollToVerticalOffset(_lastOffset);
+            follower.ScrollToVerticalOffset(CorrespondingOffset(source, follower));
         });
     }
 
@@ -63,10 +106,10 @@ public sealed class DiffScrollSynchronizer
         Reset();
         long generation = _generation;
         _left.ScrollToLine(line);
-        _right.ScrollToLine(line);
+        _right.ScrollToLine(RightLine(line));
         _left.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
         {
-            if (generation == _generation) _right.ScrollToVerticalOffset(_left.VerticalOffset);
+            if (generation == _generation) _right.ScrollToVerticalOffset(CorrespondingOffset(_left, _right));
         });
     }
 }

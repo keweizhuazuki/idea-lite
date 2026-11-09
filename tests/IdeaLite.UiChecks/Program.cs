@@ -53,6 +53,7 @@ internal static class Program
             finally { UiText.Current.Language = "en"; }
         }
         EditorVisualChecks.Run(Check, Pump);
+        InteractionChecks.Run(Check, Pump);
         TerminalChecks.Run(Check, Pump);
         AiUiChecks.Run(Check, Pump);
         Check("Translation templates preserve placeholders and user data in both languages", () =>
@@ -310,7 +311,7 @@ internal static class Program
             Require(((TreeViewItem)buildTree.Items[0]).Items.OfType<TreeViewItem>().Any(item => item.Tag != null), "Compiler file/line was not captured as a navigation target");
             var errorItem = ((TreeViewItem)buildTree.Items[0]).Items.OfType<TreeViewItem>().First(item => item.Tag != null);
             buildTree.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
-            { RoutedEvent = Control.MouseDoubleClickEvent, Source = errorItem });
+            { RoutedEvent = UIElement.MouseLeftButtonUpEvent, Source = errorItem });
             var editor = (TextEditor)workbench.FindName("Editor");
             Until(() => editor.Text.Contains("class Example"));
             Require(editor.TextArea.Caret.Line == 2, "Compiler error did not navigate to the reported source line");
