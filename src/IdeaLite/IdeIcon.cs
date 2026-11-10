@@ -52,6 +52,8 @@ public sealed class IdeIcon : Control
             ["Down"] = "M6,8L10,12L14,8",
             ["Next"] = "M5,8L10,13L15,8",
             ["Previous"] = "M5,12L10,7L15,12",
+            ["Left"] = "M12,5L7,10L12,15",
+            ["Right"] = "M8,5L13,10L8,15",
             ["Plus"] = "M3,10H17 M10,3V17",
             ["Minus"] = "M4,10H16",
             ["Close"] = "M5,5L15,15 M15,5L5,15",

@@ -14,6 +14,8 @@ public partial class MainWindow
     private LeftTool _left;
     private BottomTool _bottom;
     private bool _mavenOpen, _showDiff;
+    private object? _tabSelection;
+    private Border? _selectedTab;
     private static Visibility Visible(bool value) => value ? Visibility.Visible : Visibility.Collapsed;
 
     private void InitializeWorkbench()
@@ -158,16 +160,17 @@ public partial class MainWindow
     }
     private async Task CycleTabAsync(bool reverse)
     {
-        int count = _documents.Count + (_preview != null ? 1 : 0);
+        var files = _documents.Where(doc => doc.HasTab).ToList();
+        int count = files.Count + (_preview != null ? 1 : 0);
         if (count < 2) return;
-        int current = _showDiff ? _documents.Count : _documents.IndexOf(_active!);
+        int current = _showDiff ? files.Count : files.IndexOf(_active!);
         int next = (current + (reverse ? -1 : 1) + count) % count;
-        if (next == _documents.Count && _preview != null) await ShowPreviewAsync(_preview);
-        else await OpenFileAsync(Relative(_documents[next].File.Path));
+        if (next == files.Count && _preview != null) await ShowPreviewAsync(_preview);
+        else await OpenFileAsync(Relative(files[next].File.Path));
     }
 
     private void AddEditorTab(string name, string kind, string description, bool selected, bool dirty,
-        Func<Task> open, Func<Task> close)
+        Func<Task> open, Func<Task> close, DocumentState? document)
     {
         var tab = new Border
         {
@@ -186,8 +189,54 @@ public partial class MainWindow
         closeButton.Click += async (_, _) => await Guard(close);
         row.Children.Add(openButton); row.Children.Add(closeButton); tab.Child = row;
         tab.MouseUp += async (_, e) => { if (e.ChangedButton == MouseButton.Middle) { e.Handled = true; await Guard(close); } };
+        tab.ContextMenu = CreateTabMenu(tab, document, listTabs: false);
         DocumentTabs.Children.Add(tab);
-        if (selected) tab.BringIntoView();
+        if (selected) _selectedTab = tab;
+    }
+
+    private void TabScrollMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (TabScroll.ScrollableWidth <= 0) return;
+        TabScroll.ScrollToHorizontalOffset(TabScroll.HorizontalOffset - e.Delta);
+        e.Handled = true;
+    }
+    private void TabScrollChanged(object sender, ScrollChangedEventArgs e)
+    {
+        TabsLeft.Visibility = TabsRight.Visibility = Visible(TabScroll.ScrollableWidth > 0);
+        TabsLeft.IsEnabled = TabScroll.HorizontalOffset > 0;
+        TabsRight.IsEnabled = TabScroll.HorizontalOffset < TabScroll.ScrollableWidth;
+    }
+    private void TabsLeftClick(object sender, RoutedEventArgs e) => ScrollTabs(-1);
+    private void TabsRightClick(object sender, RoutedEventArgs e) => ScrollTabs(1);
+    private void ScrollTabs(int direction) => TabScroll.ScrollToHorizontalOffset(
+        TabScroll.HorizontalOffset + direction * Math.Max(80, TabScroll.ViewportWidth * .65));
+
+    private void TabActionsClick(object sender, RoutedEventArgs e)
+    {
+        if (!_showDiff && _active == null) return;
+        CreateTabMenu(TabActions, _showDiff ? null : _active, listTabs: true).IsOpen = true;
+    }
+    private ContextMenu CreateTabMenu(UIElement target, DocumentState? document, bool listTabs)
+    {
+        var menu = PopupMenu(target);
+        MenuAction(menu, "关闭标签", document == null ? ClosePreviewAsync : () => CloseDocumentAsync(document), "Ctrl+W");
+        var others = MenuAction(menu, "关闭其他标签", () => CloseTabsAsync(
+            _documents.Where(doc => doc != document).ToArray(), closeDiff: document != null, select: document, selectDiff: document == null));
+        others.IsEnabled = _documents.Count(doc => doc.HasTab) + (_preview != null ? 1 : 0) > 1;
+        MenuAction(menu, "关闭所有标签", () => CloseTabsAsync(_documents.ToArray(), closeDiff: true));
+        if (listTabs)
+        {
+            menu.Items.Add(new Separator());
+            foreach (var doc in _documents.Where(doc => doc.HasTab))
+            {
+                var path = Relative(doc.File.Path);
+                var item = new MenuItem { Header = path, IsChecked = !_showDiff && _active == doc };
+                item.Click += async (_, _) => await Guard(() => OpenFileAsync(path));
+                menu.Items.Add(item);
+            }
+            if (_preview is { } preview) MenuAction(menu, preview.Description, () => ShowPreviewAsync(preview));
+        }
+        return menu;
     }
 
     private static Brush IconBrush(string kind) => kind switch
@@ -282,12 +331,13 @@ public partial class MainWindow
         if (ItemAt<ListBoxItem>(ChangesList, e.OriginalSource) is { IsSelected: false } item) ChangesList.SelectedItem = item.Content;
     }
 
-    private static void MenuAction(ItemsControl parent, string header, Func<Task> action, string shortcut = "")
+    private MenuItem MenuAction(ItemsControl parent, string header, Func<Task> action, string shortcut = "")
     {
         var item = new MenuItem { Header = header, InputGestureText = shortcut };
         if (!Path.IsPathFullyQualified(header)) item.Localize("Header");
-        item.Click += async (_, _) => await ((MainWindow)Application.Current.MainWindow).Guard(action);
+        item.Click += async (_, _) => await Guard(action);
         parent.Items.Add(item);
+        return item;
     }
     private static ContextMenu PopupMenu(UIElement target) => new() { PlacementTarget = target, Placement = PlacementMode.Bottom };
     private void ProjectMenuClick(object sender, RoutedEventArgs e)

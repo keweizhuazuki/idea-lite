@@ -46,6 +46,7 @@ public partial class MainWindow : Window
     {
         public OpenedFile File { get; set; } = file;
         public TextDocument Document { get; } = new(file.Text);
+        public bool HasTab { get; set; } = true;
         public bool Dirty { get; set; }
         public int Caret { get; set; }
         public double Scroll { get; set; }
@@ -224,6 +225,7 @@ public partial class MainWindow : Window
             if (remember && (_active != document || (line.HasValue && Editor.TextArea.Caret.Line != line.Value))) _back.Push((Relative(_active.File.Path), Editor.TextArea.Caret.Line));
         }
         _loadingDocument = true; _active = document;
+        document.HasTab = true;
         ClearDefinitionHover();
         Editor.Document = document.Document; Editor.IsReadOnly = false;
         Editor.Options.ConvertTabsToSpaces = !document.File.Style.UseTabs;
@@ -279,19 +281,25 @@ public partial class MainWindow : Window
     private void RebuildTabs()
     {
         if (DocumentTabs == null) return;
+        object? selected = _showDiff ? _preview : _active;
+        bool reveal = !Equals(selected, _tabSelection);
+        _tabSelection = selected;
+        _selectedTab = null;
         DocumentTabs.Children.Clear();
-        foreach (var doc in _documents)
+        foreach (var doc in _documents.Where(doc => doc.HasTab))
         {
             AddEditorTab(Path.GetFileName(doc.File.Path), FileIcon(doc.File.Path), doc.File.Path,
                 !_showDiff && doc == _active, doc.Dirty, () => OpenFileAsync(Relative(doc.File.Path)),
-                () => CloseDocumentAsync(doc));
+                () => CloseDocumentAsync(doc), doc);
         }
         if (_preview != null)
         {
             var preview = _preview;
             AddEditorTab(Path.GetFileName(preview.Path), "Diff", preview.Description, _showDiff, _diffDocument?.Dirty == true,
-                () => ShowPreviewAsync(preview), () => { ClosePreview(); return Task.CompletedTask; });
+                () => ShowPreviewAsync(preview), ClosePreviewAsync, null);
         }
+        TabActions.IsEnabled = DocumentTabs.Children.Count > 0;
+        if (reveal) Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => _selectedTab?.BringIntoView());
     }
 
     private async Task SaveAsync(bool overwrite = false)
@@ -325,18 +333,45 @@ public partial class MainWindow : Window
         finally { doc.Saving = false; }
     }
     private bool ConfirmCloseAll() => !_documents.Any(d => d.Dirty) || Dialogs.Confirm(this, "存在未保存的文档。继续会丢弃这些编辑，是否继续？");
-    private async Task CloseDocumentAsync(DocumentState doc)
+    private Task CloseDocumentAsync(DocumentState doc) => CloseTabsAsync([doc], _diffDocument == doc);
+
+    private async Task CloseTabsAsync(DocumentState[] closing, bool closeDiff, DocumentState? select = null, bool selectDiff = false)
     {
-        if (doc.Dirty && !Dialogs.Confirm(this, "关闭并丢弃未保存的编辑？\n" + doc.File.Path)) return;
-        if (_diffDocument == doc) ClosePreview();
-        _documents.Remove(doc);
-        if (_active == doc)
+        var removed = closing.Where(doc => closeDiff || doc != _diffDocument).ToHashSet();
+        if (removed.Any(doc => doc.Saving)) { SetStatus("请等待文档保存完成后再关闭。"); return; }
+        var dirty = removed.Where(doc => doc.Dirty).ToArray();
+        if (dirty.Length > 0 && !Dialogs.Confirm(this, dirty.Length == 1
+            ? "关闭并丢弃未保存的编辑？\n" + dirty[0].File.Path
+            : "存在未保存的文档。继续会丢弃这些编辑，是否继续？")) return;
+        if (closing.Length > 0) ++_openRequest;
+        if (closeDiff)
+        {
+            _diffLoad?.Cancel();
+            DetachDiffDocument();
+            _preview = null;
+            _showDiff = false;
+        }
+        else if (_diffDocument != null && closing.Contains(_diffDocument)) _diffDocument.HasTab = false;
+        _documents.RemoveAll(removed.Contains);
+        if (_active != null && (removed.Contains(_active) || !_active.HasTab))
         {
             _active = null;
-            if (_documents.Count > 0) await OpenFileAsync(Relative(_documents[^1].File.Path), remember: false);
-            else { _loadingDocument = true; Editor.Document = new TextDocument(); Editor.IsReadOnly = true; _loadingDocument = false; SetSurface(_showDiff && _preview != null); UpdateStructure(); }
+            _loadingDocument = true;
+            Editor.Document = new TextDocument(); Editor.IsReadOnly = true;
+            _loadingDocument = false;
+            ResetLineChanges();
         }
-        RebuildTabs();
+        if (selectDiff) _showDiff = _preview != null;
+        if (!_showDiff && _active == null) select ??= _documents.LastOrDefault(doc => doc.HasTab);
+        if (select != null && _documents.Contains(select) && _active != select)
+            await OpenFileAsync(Relative(select.File.Path), remember: false);
+        else
+        {
+            SetSurface(_showDiff);
+            UpdateTypeUsages();
+            UpdateStructure();
+            FocusEditor();
+        }
     }
     private async Task RefreshGitAsync()
     {
@@ -363,7 +398,7 @@ public partial class MainWindow : Window
                 await ShowPreviewAsync(DiffPreview.Local(current, _diffDocument == null && current.IsStaged && (!current.HasWorkingChanges || _preview.Staged)));
             else if (_diffDocument != null && !_gitStatus!.Changes.Any(change => change.Path == _preview.Path))
                 await ShowPreviewAsync(DiffPreview.Local(new GitChange(_preview.Path, null, ' ', 'M'), false));
-            else ClosePreview();
+            else await ClosePreviewAsync();
         }
     }
 
@@ -499,8 +534,7 @@ public partial class MainWindow : Window
             (ModifierKeys.Control, Key.B) or (ModifierKeys.None, Key.F12) when editor != null => () => NavigateDefinitionAsync(editor),
             (ModifierKeys.None, Key.F5) => RefreshWorkspaceAsync,
             (ModifierKeys.Control | ModifierKeys.Alt, Key.Y) => ReloadAllFromDiskAsync,
-            (ModifierKeys.Control, Key.W) when _showDiff => () => { ClosePreview(); return Task.CompletedTask; }
-            ,
+            (ModifierKeys.Control, Key.W) when _showDiff => ClosePreviewAsync,
             (ModifierKeys.Control, Key.W) when _active != null => () => CloseDocumentAsync(_active),
             (ModifierKeys.Alt, Key.Left) or (ModifierKeys.Control | ModifierKeys.Alt, Key.Left) => GoBackAsync,
             _ => null

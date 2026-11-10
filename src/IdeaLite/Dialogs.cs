@@ -1,8 +1,10 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using IdeaLite.Core;
+using Microsoft.Win32;
 
 namespace IdeaLite;
 
@@ -21,16 +23,71 @@ public static class Dialogs
         form.Children.Add(new TextBlock { Text = "Git：" + GitService.ExecutablePath, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12) }.Localize("Text"));
         var wsl = new CheckBox { Content = "使用 WSL 运行 Maven", IsChecked = settings.MavenInWsl, Margin = new Thickness(0, 0, 0, 10) }.Localize("Content"); form.Children.Add(wsl);
         form.Children.Add(new TextBlock { Text = "WSL 模式填写 Linux 路径；Windows 模式填写 Windows 路径。留空时使用项目 Wrapper 或 PATH。", FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 10) }.Localize("Text"));
-        TextBox Input(string label, string value)
+        bool browsing = false;
+        string? distributionRoot = null;
+        TextBox Input(string label, string value, string? filter = null, bool folder = false)
         {
             var row = new DockPanel { Margin = new Thickness(0, 4, 0, 4) };
             var title = new TextBlock { Text = label, Width = 130 }.Localize("Text"); DockPanel.SetDock(title, Dock.Left); row.Children.Add(title);
-            var field = new TextBox { Text = value }; row.Children.Add(field); form.Children.Add(row); return field;
+            var field = new TextBox { Text = value };
+            if (filter != null || folder)
+            {
+                var browse = new Button { Content = "浏览…", Margin = new Thickness(7, 0, 0, 0), MinWidth = 68 }.Localize("Content");
+                System.Windows.Automation.AutomationProperties.SetName(browse, UiText.Current.Format($"浏览 {UiText.Current.Translate(label)}"));
+                DockPanel.SetDock(browse, Dock.Right);
+                row.Children.Add(browse);
+                browse.Click += async (_, _) =>
+                {
+                    if (browsing) return;
+                    browsing = true;
+                    browse.IsEnabled = false;
+                    try
+                    {
+                        bool useWsl = wsl.IsChecked == true;
+                        if (useWsl && distributionRoot == null)
+                        {
+                            var result = await ProcessRunner.RunAsync(Path.Combine(Environment.SystemDirectory, "wsl.exe"),
+                                ["--exec", "wslpath", "-w", "/"], Environment.SystemDirectory, timeoutSeconds: 10);
+                            if (result.ExitCode != 0 || !result.Output.Trim().StartsWith(@"\\wsl", StringComparison.OrdinalIgnoreCase))
+                                throw new InvalidOperationException("无法打开默认 WSL 发行版的文件系统。");
+                            distributionRoot = result.Output.Trim();
+                        }
+                        if (!window.IsVisible || useWsl != (wsl.IsChecked == true)) return;
+                        var current = field.Text.Trim();
+                        if (useWsl) current = WslProcess.WindowsBrowsePath(current, distributionRoot!);
+                        var initial = folder && Directory.Exists(current) ? current : Path.GetDirectoryName(current);
+                        if (!Directory.Exists(initial)) initial = useWsl ? distributionRoot : null;
+                        string? selected;
+                        if (folder)
+                        {
+                            var picker = new OpenFolderDialog { Title = UiText.Current.Translate(label), InitialDirectory = initial ?? "" };
+                            selected = picker.ShowDialog(window) == true ? picker.FolderName : null;
+                        }
+                        else
+                        {
+                            var picker = new OpenFileDialog
+                            {
+                                Title = UiText.Current.Translate(label), InitialDirectory = initial ?? "",
+                                Filter = UiText.Current.Translate(useWsl && label == "Maven 可执行文件" ? "所有文件|*.*" : filter),
+                                FileName = File.Exists(current) ? Path.GetFileName(current) : ""
+                            };
+                            selected = picker.ShowDialog(window) == true ? picker.FileName : null;
+                        }
+                        if (selected != null) field.Text = useWsl ? WslProcess.LinuxBrowsePath(selected, distributionRoot!) : selected;
+                    }
+                    catch (Exception ex)
+                    {
+                        if (window.IsVisible) Error(window, ex);
+                    }
+                    finally { browsing = false; browse.IsEnabled = true; }
+                };
+            }
+            row.Children.Add(field); form.Children.Add(row); return field;
         }
-        var executable = Input("Maven 可执行文件", settings.MavenExecutable);
-        var configuration = Input("settings.xml", settings.MavenSettings);
-        var repository = Input("本地仓库", settings.MavenRepository);
-        var java = Input("JAVA_HOME", settings.JavaHome);
+        var executable = Input("Maven 可执行文件", settings.MavenExecutable, "可执行文件|*.exe;*.cmd;*.bat|所有文件|*.*");
+        var configuration = Input("settings.xml", settings.MavenSettings, "XML 文件|*.xml|所有文件|*.*");
+        var repository = Input("本地仓库", settings.MavenRepository, folder: true);
+        var java = Input("JAVA_HOME", settings.JavaHome, folder: true);
         var goals = Input("默认任务与参数", settings.MavenGoals);
         window.Content = panel;
         if (window.ShowDialog() != true) return false;

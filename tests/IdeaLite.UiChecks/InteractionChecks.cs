@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using DiffPlex;
 using DiffPlex.DiffBuilder;
 using DiffPlex.DiffBuilder.Model;
@@ -347,6 +348,56 @@ internal static class InteractionChecks
                 finally { source.Close(); }
             }
             finally { layout.MavenRepository = previous; }
+        }));
+        check("Document tabs scroll and bulk close protects drafts, including an editable Diff", () => WithRepository((owner, git, root) =>
+        {
+            var scroll = (ScrollViewer)owner.FindName("TabScroll");
+            var tabs = (StackPanel)owner.FindName("DocumentTabs");
+            var editor = (TextEditor)owner.FindName("Editor");
+            MenuItem ActionAt(int tab, int action) => (MenuItem)((Border)tabs.Children[tab]).ContextMenu.Items[action];
+            void Click(MenuItem action) => action.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            void AnswerNextConfirmation(bool answer) => owner.Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
+                owner.OwnedWindows.Cast<Window>().Single(window => window.IsVisible).DialogResult = answer);
+            for (int index = 0; index < 8; index++)
+            {
+                string name = $"src/LongNameForEditorOverflowDocument{index}.java";
+                File.WriteAllText(Path.Combine(root, name), "class Fixture {}\n");
+                Wait(InvokeTask(owner, "OpenFileAsync", name, null, true));
+            }
+            Until(() => scroll.ScrollableWidth > 150 && scroll.HorizontalOffset > 120);
+            double previous = scroll.HorizontalOffset;
+            scroll.RaiseEvent(new MouseWheelEventArgs(Mouse.PrimaryDevice, 0, 120) { RoutedEvent = Mouse.PreviewMouseWheelEvent });
+            Until(() => scroll.HorizontalOffset < previous);
+            previous = scroll.HorizontalOffset;
+            ((Button)owner.FindName("TabsRight")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Until(() => scroll.HorizontalOffset > previous);
+            Require(((Button)owner.FindName("TabActions")).IsEnabled, "The right-side tab actions button was unavailable");
+            editor.AppendText("// draft");
+            var others = ActionAt(0, 1);
+            AnswerNextConfirmation(false);
+            Click(others);
+            Require(tabs.Children.Count == 9 && editor.Text.Contains("// draft"), "Canceling Close Other Tabs discarded a draft or removed tabs");
+            AnswerNextConfirmation(true);
+            Click(ActionAt(0, 1));
+            Until(() => tabs.Children.Count == 1 && editor.Text.StartsWith("# Interaction fixture", StringComparison.Ordinal));
+            Click(ActionAt(0, 2));
+            Until(() => tabs.Children.Count == 0);
+
+            string path = Path.Combine(root, "src", "Example.java");
+            File.AppendAllText(path, "// external update\n");
+            Wait(InvokeTask(owner, "RefreshGitAsync"));
+            var changes = (ListBox)owner.FindName("ChangesList");
+            changes.SelectedItem = changes.Items.OfType<ChangeItem>().Single(item => item.Change.Path == "src/Example.java");
+            Wait(InvokeTask(owner, "OpenSelectedChangeAsync"));
+            var right = (TextEditor)owner.FindName("NewEditor");
+            right.AppendText("// Diff draft");
+            Click(ActionAt(tabs.Children.Count - 1, 1));
+            Require(tabs.Children.Count == 1 && !right.IsReadOnly && right.Text.EndsWith("// Diff draft", StringComparison.Ordinal),
+                "Closing other tabs detached the retained Diff's draft");
+            Click(ActionAt(0, 0));
+            Until(() => editor.IsVisible && editor.Text.EndsWith("// Diff draft", StringComparison.Ordinal));
+            Require(tabs.Children.Count == 1 && !File.ReadAllText(path).Contains("// Diff draft"),
+                "Closing the only Diff tab failed to preserve its unsaved source buffer");
         }));
         check("Single clicks open source and diffs while commit checkboxes keep their selection behavior", () => WithRepository((owner, git, root) =>
         {

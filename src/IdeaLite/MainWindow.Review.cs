@@ -151,18 +151,21 @@ public partial class MainWindow
     {
         if (ChangesList.SelectedItem is ChangeItem item) await OpenFileAsync(item.Change.Path);
     }
-    private void ClosePreview()
-    {
-        _diffLoad?.Cancel();
-        DetachDiffDocument();
-        _preview = null;
-        SetSurface(false); FocusEditor();
-    }
+    private Task ClosePreviewAsync() => CloseTabsAsync([], closeDiff: true);
 
     private void DetachDiffDocument()
     {
         _diffUpdateTimer.Stop();
-        if (_diffDocument != null) NewEditor.Document = new TextDocument();
+        if (_diffDocument is { } document)
+        {
+            NewEditor.Document = new TextDocument();
+            if (!document.HasTab)
+            {
+                // The Diff can be the only visible tab for a shared working-tree buffer.
+                if (document.Dirty || document.Saving) document.HasTab = true;
+                else _documents.Remove(document);
+            }
+        }
         _diffDocument = null;
         NewEditor.IsReadOnly = true;
         _diffUsages.Set(NewEditor, null, null);

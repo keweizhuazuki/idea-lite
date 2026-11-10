@@ -94,7 +94,18 @@
           <GridSplitter Grid.Column="1" ResizeDirection="Columns"/>
           <Border Grid.Column="2" Background="{StaticResource Bg}" CornerRadius="9" BorderBrush="{StaticResource Stroke}" BorderThickness="1" Margin="2,3,2,0"><Grid Background="{StaticResource Bg}" Margin="1,4,1,1">
             <Grid.RowDefinitions><RowDefinition Height="34"/><RowDefinition/></Grid.RowDefinitions>
-            <Border BorderBrush="{StaticResource Stroke}" BorderThickness="0,0,0,1"><ScrollViewer x:Name="TabScroll" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Hidden"><StackPanel x:Name="DocumentTabs" Orientation="Horizontal"/></ScrollViewer></Border>
+            <Border BorderBrush="{StaticResource Stroke}" BorderThickness="0,0,0,1">
+              <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                  <Button x:Name="TabsLeft" Style="{StaticResource ToolButton}" Visibility="Collapsed" Click="TabsLeftClick" ToolTip="{ui:Tr '向左滚动标签'}" AutomationProperties.Name="{ui:Tr '向左滚动标签'}"><ui:IdeIcon Kind="Left"/></Button>
+                  <Button x:Name="TabsRight" Style="{StaticResource ToolButton}" Visibility="Collapsed" Click="TabsRightClick" ToolTip="{ui:Tr '向右滚动标签'}" AutomationProperties.Name="{ui:Tr '向右滚动标签'}"><ui:IdeIcon Kind="Right"/></Button>
+                  <Button x:Name="TabActions" Style="{StaticResource ToolButton}" IsEnabled="False" Click="TabActionsClick" ToolTip="{ui:Tr '标签操作'}" AutomationProperties.Name="{ui:Tr '标签操作'}"><ui:IdeIcon Kind="More"/></Button>
+                </StackPanel>
+                <ScrollViewer x:Name="TabScroll" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Hidden" PanningMode="HorizontalOnly" PreviewMouseWheel="TabScrollMouseWheel" ScrollChanged="TabScrollChanged">
+                  <StackPanel x:Name="DocumentTabs" Orientation="Horizontal"/>
+                </ScrollViewer>
+              </DockPanel>
+            </Border>
             <Grid Grid.Row="1">
               <ae:TextEditor x:Name="Editor"/>
               <StackPanel x:Name="WelcomePane" HorizontalAlignment="Center" VerticalAlignment="Center">

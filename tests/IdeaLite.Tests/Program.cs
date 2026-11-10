@@ -148,6 +148,18 @@ await Test("Maven namespaces, properties and dependency management", async () =>
     await Throws<System.Xml.XmlException>(() => Task.FromResult(MavenAnalyzer.Parse(path, "pom.xml")));
 });
 
+await Test("WSL build path selection preserves drive mounts and distribution files", async () =>
+{
+    const string root = @"\\wsl.localhost\Ubuntu\";
+    Equal(@"D:\dev\maven\settings-JDK17.xml", WslProcess.WindowsBrowsePath("/mnt/d/dev/maven/settings-JDK17.xml", root));
+    Equal("/mnt/d/dev/maven/settings-JDK17.xml", WslProcess.LinuxBrowsePath(@"D:\dev\maven\settings-JDK17.xml", root));
+    Equal(@"\\wsl.localhost\Ubuntu\usr\bin\mvn", WslProcess.WindowsBrowsePath("/usr/bin/mvn", root));
+    Equal("/usr/bin/mvn", WslProcess.LinuxBrowsePath(@"\\wsl.localhost\Ubuntu\usr\bin\mvn", root));
+    Equal("/usr/lib/jvm/Java 21", WslProcess.LinuxBrowsePath(@"\\wsl$\Ubuntu\usr\lib\jvm\Java 21", root));
+    Equal("/", WslProcess.LinuxBrowsePath(root, root));
+    await Throws<ArgumentException>(() => Task.FromResult(WslProcess.LinuxBrowsePath(@"\\wsl.localhost\Ubuntu-Other\usr\bin\mvn", root)));
+});
+
 await Test("Java types/methods and Spring routes are searchable", () =>
 {
     var symbols = new List<SearchHit>(); var spring = new List<SearchHit>();

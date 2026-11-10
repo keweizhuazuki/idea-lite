@@ -15,6 +15,30 @@ public static class WslProcess
         return "/mnt/" + char.ToLowerInvariant(full[0]) + full[2..].Replace('\\', '/');
     }
 
+    public static string WindowsBrowsePath(string path, string distributionRoot)
+    {
+        if (!path.StartsWith('/')) return path;
+        if (path.StartsWith("/mnt/", StringComparison.Ordinal) && path.Length >= 6 &&
+            char.IsAsciiLetter(path[5]) && (path.Length == 6 || path[6] == '/'))
+            return char.ToUpperInvariant(path[5]) + @":\" + path[6..].TrimStart('/').Replace('/', '\\');
+        return distributionRoot.TrimEnd('\\') + path.Replace('/', '\\');
+    }
+
+    public static string LinuxBrowsePath(string path, string distributionRoot)
+    {
+        var distribution = distributionRoot.TrimEnd('\\').Split('\\')[^1];
+        foreach (var prefix in new[] { @"\\wsl.localhost\", @"\\wsl$\" })
+        {
+            string root = prefix + distribution;
+            if (path.Equals(root, StringComparison.OrdinalIgnoreCase)) return "/";
+            if (path.StartsWith(root + "\\", StringComparison.OrdinalIgnoreCase))
+                return path[root.Length..].Replace('\\', '/');
+        }
+        if (path.Length < 3 || path[1] != ':')
+            throw new ArgumentException("请选择本机磁盘或当前 WSL 发行版中的路径。");
+        return LinuxPath(path);
+    }
+
     public static async Task<CommandResult> RunAsync(string script, string directory, CancellationToken cancellationToken = default, Action<string>? onOutput = null, int timeoutSeconds = 1200)
     {
         cancellationToken.ThrowIfCancellationRequested();
