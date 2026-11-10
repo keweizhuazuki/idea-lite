@@ -1,7 +1,9 @@
 # Spring Shop sample
 
-A tiny, synthetic Java project for exploring Idea Lite. No real credentials or company code.
+[简体中文](README.zh-CN.md) · [Project README](../../README.md)
 
-Open this folder in Idea Lite. Try **Shift twice** → `OrderService`, **Ctrl+click** → `findById`, and the **Maven** tool window on the right and **Services** (Alt+8). Maven is only run when you explicitly choose a task; it requires your own JDK 17+ and Maven.
+Spring Shop is a small, synthetic Java project for exploring Idea Lite. It contains only demonstration code and data.
 
-To try Git in an isolated copy, run `scripts/New-DemoWorkspace.ps1`. The script creates a local repository with a merge graph, staged changes and working-tree changes. It never touches your own repositories.
+Open this folder in Idea Lite. Press **Shift twice** to find `OrderService`, **Ctrl+click** a reference to `findById` to jump to its definition, and use the **Maven** and **Services** (Alt+8) tool windows to inspect the project. Running a Maven task requires a JDK 17 or later and Maven.
+
+For an isolated Git demo, run [`New-DemoWorkspace.ps1`](../../scripts/New-DemoWorkspace.ps1) from the repository root. The script creates a separate local repository with merge history, staged changes, and working-tree changes.

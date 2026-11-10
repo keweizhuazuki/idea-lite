@@ -1,196 +1,124 @@
-<p align="center"><b>il</b></p>
-
 # Idea Lite
 
-**轻装看代码，专注每一次改动。**
+**A lightweight Windows code editor and Git workbench with an IntelliJ IDEA–style layout.**
+
+[简体中文](README.zh-CN.md)
 
 [![Build and verify](https://github.com/keweizhuazuki/idea-lite/actions/workflows/ci.yml/badge.svg)](https://github.com/keweizhuazuki/idea-lite/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-7de2b2)](LICENSE)
 [![Windows x64](https://img.shields.io/badge/platform-Windows%20x64-8dcbe8)](https://github.com/keweizhuazuki/idea-lite/releases/latest)
 
-公司电脑配置一般，AI 又能一下改很多文件。只是想看一眼代码和 diff、处理冲突、提交改动，却要先打开一个完整 IDE、等它索引，还得占着大量内存。
+Review changes, edit source files, resolve conflicts, and commit from one window. The workbench has a project tree and Commit panel on the left, file and diff tabs in the center, Maven on the right, and Git Log, Build, Services, and Terminal at the bottom.
 
-Idea Lite 就是为这个场景做的：一个 Windows 原生的代码编辑器和 Git 工作台。保留常用的 IDEA 操作习惯，把资源留给真正需要的工作。
+![Commit panel, side-by-side diff, and Git Log](docs/images/git-diff.png)
 
-![IDEA 风格工作台，左侧 Commit、编辑区 Diff、底部 Git 日志](docs/images/git-diff.png)
+![Java editor and Maven project tree](docs/images/editor-project.png)
 
-上图使用合成示例数据，由原生 WPF 控件离屏渲染。
+Both screenshots use synthetic sample data.
 
-![Java 编辑区与项目树，使用合成示例数据](docs/images/editor-project.png)
+## Download and open a project
 
-## v0.2.0 的界面调整
+Download a Windows x64 ZIP from [GitHub Releases](https://github.com/keweizhuazuki/idea-lite/releases/latest), extract it, and open `IdeaLite.exe`.
 
-默认采用左侧 Commit、底部 Git 日志的布局。顶部是项目与 Git 分支选择器，编辑区使用文件与 Diff 标签，Maven 位于右侧，Spring 信息位于底部服务窗口。深色配色、工具栏、侧边工具按钮和状态栏均按熟悉的 IDEA 布局组织。
+| Package | Requirements |
+| --- | --- |
+| `IdeaLite-win-x64-framework.zip` | [.NET 10 Desktop Runtime x64](https://dotnet.microsoft.com/download/dotnet/10.0) |
+| `IdeaLite-win-x64-portable.zip` | Bundles the .NET runtime |
 
-- **Ctrl+K / Alt+0** 打开左侧提交窗口，按更改、未版本化文件、冲突分组，每个文件只出现一次并可勾选。双击文件或 **Ctrl+D** 打开 Diff，**F4** 跳转源文件。
-- **Alt+9** 打开底部 Git 日志。左边筛选分支，中间显示真实父子关系的分支图，右边显示更改文件与提交详情。双击右侧文件可比较该提交与父版本。
-- **Alt+1** 打开项目，**Alt+7** 打开结构，**Alt+8** 打开服务，**Ctrl+Shift+F12** 收起或恢复工具窗口。
-- 双击 Shift 的搜索窗口支持全部、类、文件、符号、操作、文本；分支选择器支持搜索与签出，推送前显示目标分支与提交预览。
-- 冲突使用独立三栏窗口，左侧本地版本、中间可编辑的合并结果、右侧传入版本。处理完点击“应用并暂存”。
-- 工具窗口大小和位置自动记忆。设置菜单可将 Commit 移到底部 Git，再切回左侧。
-- 本地源码版进一步调整深色圆角面板、分支菜单和提交说明区；分支列表同时显示上游引用，Markdown 源码保持统一字号。
-- Maven 面板可展开生命周期并双击运行任务；构建控制台持续显示标准输出与错误输出，提供耗时、结果、停止和跟随输出。输出每 50 毫秒分批刷新，视图保留最近约 1 MiB，避免大量日志拖慢编辑区。
-- “设置 → 构建工具与环境”支持选择 Windows / WSL Maven、Maven 可执行文件、settings.xml、本地仓库和 JAVA_HOME；环境仅传给子进程。任务参数按项目保存，顶部运行按钮或 Shift+F10 重跑当前任务，Ctrl+F9 编译项目。WSL 模式停止的是独立 Linux 进程组；构建模块和错误出现在左侧树中，双击 Java 编译错误可定位到源码行。
-- 分支菜单显示最近切换、本地、远程和标签分组，支持折叠、搜索、上游分支及常用快捷键。编辑器和控制台内置 JetBrains Mono；Git 改动状态使用 Islands Dark 的红、绿、青配色。
-- Java 编辑区区分关键字、注解、方法声明、常量、数字、字符串与注释，支持多行文本块；使用随程序附带的 JetBrains Mono 和 1.55 倍字形行距，绘制可见行缩进线并突出当前层级。Javadoc 星号行不再误导缩进检测，`.editorconfig` 的明确设置优先。项目树使用统一的 26 px 行高、18 px 层级间距，区分 Maven 模块、Java 源码根和包，保留包目录合并及刷新后的选中状态。提示框统一为深色背景；Alt+F12 在项目目录打开 Git Bash（需要 Git for Windows）。
-- 默认使用英文。右上角 EN / 中按钮，或 Settings → Language，可在 English 和简体中文之间即时切换并保存选择；切换保留当前文档、未保存编辑、光标、提交说明和工具窗口布局。界面、搜索、构建状态与确认窗口一起切换，源码、文件/分支名和原始 Git/Maven 日志保持原样。
-- 提交说明上方的 ✨ 按钮可通过 OpenAI / DeepSeek 生成提交草稿。旁边的齿轮或 Settings → AI Commit Settings 选择服务商、填写对应 API Key 即可；两家的 Key 分别保存在当前 Windows 用户的凭据库，不进入项目或 workbench.json。默认模型为 `gpt-5.4-mini` / `deepseek-flash`，高级设置可更换模型，提交说明可独立选择英文或中文。
-- AI 根据勾选文件相对于 HEAD 的工作区差异生成说明，包含新文件、删除和重命名；Amend 同时提供原提交内容。生成时会向所选服务商发送这些差异、分支和现有说明，单次最多 100 个文件、16,000 字符的差异上下文，按文件分配预算，大文件/二进制省略内容并明确标记。草稿最多 1,000 字符，分支最多 256 字符，输出上限 256 tokens；只进行一次生成请求，不扫描全仓库或开启多轮代理。中文上下文保留原文，不额外转为 Unicode 转义。完成后在状态栏显示服务商返回的真实输入/输出 token 数（若响应缺失 usage 则不虚构用量）；字符上限不等于精确 token 上限。
-- 分支或草稿中的 AIDF/AIGC 任务号会保留，格式为 `<任务号> <类型> <摘要>`，不自动提交。再次点击取消；请求中修改说明会先展示结果供确认，项目、选择或文件变化则拒绝回填旧结果。保存勾选文件后再生成。
-- AI Commit Settings 中可查看、编辑并保存完整内置提示词，OpenAI 和 DeepSeek 共用这份设置；恢复默认只修改当前编辑框，保存后生效，取消则放弃编辑。预览会显示按当前分支、现有说明和输出语言展开后的 system 提示词，不调用 API。变量支持 `{task_rule}`、`{task_id}`、`{language_rule}`、`{language}`，其他大括号（如 JSON 示例）原样保留，提示词最多 4,000 字符。任务号由本地按“现有说明优先，其次分支名”匹配 AIDF/AIGC 格式，并非写死某个编号；删除 `{task_rule}` 可取消自动前缀要求。
+Both packages offer the same features. The release includes `SHA256SUMS.txt` for checksum verification. Install [Git for Windows](https://git-scm.com/downloads/win) for Git actions and the embedded Git Bash terminal. To execute Maven tasks, configure a JDK and Maven or use the project's Maven Wrapper.
 
-- 全局滚动条使用 8 px 轨道；Diff 两侧右边显示整份文件的改动色带，点击色块可同步跳转。普通编辑器的行号旁显示相对 Git HEAD 的新增、修改与删除标记，包含未保存编辑，暂存不会清除标记。
-- 工作区 Diff 的右栏可直接编辑，`Ctrl+S` 保存，也支持替换、复制行、行注释和缩进快捷键。两栏可查找文本、跳行和跳转源码定义。文件标签与 Diff 共享草稿和撤销历史，字符高亮随编辑更新。暂存和提交历史的快照为只读。
-- Java 类型声明行显示已索引源码中的用法数。点击数字可筛选引用，单击或按 Enter 跳到对应的文件、行和列。通过 **File → Reload All from Disk** 或 `Ctrl+Alt+Y` 刷新索引和未编辑的标签，未保存的草稿会保留。
-- Ctrl+单击显式导入的 Java 类型时，也可以查看直接 Maven 依赖的本地 `-sources.jar`。优先使用构建设置中的本地仓库，然后检查用户目录下的 `.m2/repository`。依赖源码以只读窗口打开。
-- 打开项目与最近项目始终启动新的 Idea Lite 进程，当前窗口及未保存内容继续保留。项目树同级目录保持固定缩进；文件、改动、搜索结果及编译错误支持单击打开。按住 Ctrl 悬停在可解析的项目源码符号上会显示下划线和手形光标，Ctrl+单击跳转定义。
-- Search Everywhere 打开前检查项目文件列表，外部新增的未跟踪文件可直接搜索，并沿用 Git 忽略规则；没有文件增删时复用已有索引。点击搜索窗口外、切换应用或按 Esc 均可关闭。
-- Alt+F12 在底部打开内置 Git Bash，`+` 可创建多个独立会话，标签可切换和关闭，保留各自的工作目录和历史命令。终端使用系统 ConPTY 与原生 Windows Terminal 控件，支持 ANSI 颜色、中文、交互输入、复制粘贴和 Ctrl+C；关闭会话或窗口会结束对应子进程。勾选 Amend last commit 自动填入上一笔提交的完整说明，取消时恢复未改动的原草稿。
+1. Press **Ctrl+O** and select a project directory. For a Git subdirectory, Idea Lite opens the repository root. Opening another project or a recent project starts a new process and keeps the current window and drafts open.
+2. Press **Shift twice** to search for files, classes, symbols, actions, or text. Click outside the popup or press **Esc** to close it.
+3. Press **Ctrl+K** to open Commit. Click a changed file to review its diff and select the files to include.
+4. Switch between English and Simplified Chinese from **Settings → Language** or the **EN / 中** button. The language switch preserves open documents, drafts, and layout.
 
-布局参考 JetBrains 的 [IDEA 界面](https://www.jetbrains.com/help/idea/guided-tour-around-the-user-interface.html)、[提交窗口](https://www.jetbrains.com/help/idea/commit-and-push-changes.html)和 [Git 日志](https://www.jetbrains.com/help/idea/log-tab.html)。图标与界面代码由本项目绘制和实现。
-
-## 下载与开始
-
-到 [Releases](https://github.com/keweizhuazuki/idea-lite/releases/latest) 下载 Windows x64 包，解压后打开 `IdeaLite.exe`。
-
-| 版本 | 适合谁 | 运行要求 |
-| --- | --- | --- |
-| `IdeaLite-win-x64-framework.zip` | 已安装 .NET 的电脑，下载小于 1 MiB | [.NET 10 Desktop Runtime x64](https://dotnet.microsoft.com/download/dotnet/10.0)，注意选择 Desktop Runtime |
-| `IdeaLite-win-x64-portable.zip` | 想解压即用的电脑，下载约 73 MiB | 自带 .NET 运行时，无需安装 SDK 或 Java |
-
-两种版本的编辑和 Git 功能完全相同。Git 操作需要另行安装 [Git for Windows](https://git-scm.com/downloads/win)，并确保 `git --version` 可用。看 Java 代码、识别 Maven/Spring 不需要启动 JVM；运行 Maven 任务才需要自己的 JDK 和 Maven/项目 Wrapper。
-
-推荐把解压目录、项目、构建缓存放在 D 盘，例如 `D:\Apps\IdeaLite` 和 `D:\code`。应用不创建全局源码缓存，不安装后台服务，也不要求管理员权限。发布包附带 `SHA256SUMS.txt`，可用 `Get-FileHash` 校验。
-
-1. 按 **Ctrl+O** 选择本地项目目录。选择 Git 子目录时会定位到仓库根目录。
-2. 按 **Ctrl+K** 打开左侧 Commit，双击改动文件查看双栏 Diff。
-3. 双击 **Shift**，搜索文件、Java/Kotlin 类型、方法和 Java 字段；**Ctrl+Shift+F** 搜索项目内容。
-4. 编辑、暂存、填写提交说明，勾选本次提交的文件，在提交窗口按 **Ctrl+Enter** 提交。**Ctrl+Shift+K** 打开推送预览。
-
-也可以从命令行直接打开项目：
+You can also pass a directory on the command line.
 
 ```powershell
 & 'D:\Apps\IdeaLite\IdeaLite.exe' 'D:\code\your-project'
 ```
 
-## 已经能做什么
+## Editing and navigation
 
-| 场景 | v0.2.0 的实现 |
+- The editor uses bundled JetBrains Mono, Java syntax highlighting, and indentation guides. It reads common `.editorconfig` settings and preserves file encoding, including BOM and GBK. The project tree groups Maven modules, Java source roots, and compact package paths.
+- When tabs overflow, scroll the tab strip with the mouse wheel or arrows. Use the menu on the right to switch to any open tab, or right-click a tab to close it, close others, or close all. Bulk closing asks before discarding drafts.
+- **Ctrl+click** or **Ctrl+B** jumps to an indexed definition. Click the usage count on a Java type declaration to choose a reference. Explicitly imported types can also open read-only source from a direct Maven dependency's local `-sources.jar`.
+- The editor gutter marks added, modified, and deleted lines relative to Git HEAD, including unsaved changes. **File → Reload All from Disk** refreshes the file list and index while preserving unsaved edits. Search Everywhere picks up new untracked files while respecting Git ignore rules.
+
+## Git review and branch management
+
+- **Commit** shows staged, unstaged, unversioned, and conflicting files. A file can appear in both staged and unstaged groups. The staged diff compares HEAD with the index. The working-tree diff compares the index with the working file.
+- Side-by-side diffs highlight changed characters and provide clickable overview markers. Edit the right side of a working-tree diff and press **Ctrl+S** to save. It shares the draft and undo history with the editor tab. Staged and historical snapshots are read-only.
+- Check working-tree files to commit their contents. With no working-tree files checked and changes in the index, **Commit Staged** commits the index and preserves unstaged edits. **Amend last commit** fills the complete previous message and asks for confirmation before rewriting the commit.
+- Select a branch in the branch popup for actions such as checkout, create, compare, merge, rebase, worktree, push, rename, and delete merged branches. Actions vary by reference type. Checkout preserves compatible local changes and stops when Git detects an overwrite risk. **Stash and Checkout** stores staged, unstaged, and untracked changes. Restore by hash from the Git menu to restore the staging state as well.
+- **Git Log** shows the commit graph, branch and text filters, and historical diffs. Right-click a commit to cherry-pick it onto the current branch. The Git menu offers **Continue Cherry-pick** and **Abort Cherry-pick**. A failed push leaves local commits available in Git Log on their original branch.
+- For a text conflict, open the three-pane merge editor and choose local, incoming, or both for each block. Edit the center result as needed, then use **Apply and Stage**. Continue or abort the Git operation from the Git menu.
+
+For other Git operations, **Git → Run Git Command** accepts arguments after `git`, such as `reflog` or `blame -- src/App.java`. Use the embedded terminal for interactive commands and credential prompts.
+
+### AI commit messages
+
+Click the sparkle button in **Commit** to generate a draft. In **Settings → AI Commit Settings**, choose OpenAI or DeepSeek and enter the provider's API key. Each key is stored separately in Windows Credential Manager. You can choose the output language, change the model, and edit or preview the built-in prompt. The defaults are `gpt-5.4-mini` and `deepseek-flash`.
+
+When you request a draft, Idea Lite sends the branch name, existing message, and selected diff to the provider. **Commit Staged** uses the index diff, and **Amend** adds context from the previous commit. Requests are limited to 100 files and 16,000 characters of change context, with an output limit of 256 tokens. The status bar shows usage when returned by the provider. Review the draft before committing.
+
+The prompt supports `{task_rule}`, `{task_id}`, `{language_rule}`, and `{language}`. The task ID comes from an AIDF or AIGC key in the existing message or branch name, in that order. Remove `{task_rule}` to omit the default instruction to prefix the message with that key.
+
+## Maven and terminal
+
+- In **Settings → Build Tools and Environment**, choose Windows or WSL and browse for the Maven executable, `settings.xml`, local repository, and `JAVA_HOME`. WSL mode fills in Linux paths. Default goals and arguments can be set per project.
+- Use the Maven tool window to run a lifecycle task. Build streams output in batches, groups modules and errors, and can jump from a Java compiler error to the source line. The toolbar can rerun or stop a task.
+- Press **Alt+F12** to open Git Bash in the project directory. Click **+** to start another session. Each tab keeps its own working directory and command history. The embedded terminal uses Windows ConPTY and supports ANSI colors, Unicode, clipboard shortcuts, and Ctrl+C.
+
+## Keyboard shortcuts
+
+| Shortcut | Action |
 | --- | --- |
-| 看代码与编辑 | 语法高亮、行号、多文档标签、撤销重做、自动缩进、文件内查找替换、跳转到行、复制行、行注释、字体缩放 |
-| 项目文件树 | 延迟创建目录节点、合并连续单层目录、层级包路径、新建文件、复制路径、在资源管理器显示 |
-| AI 改动审查 | 按更改 / 未版本化文件分组打开、双栏逐行对齐、增删行着色、同步滚动、忽略空白、上一处 / 下一处差异 |
-| Git 提交树 | 底部 Git 窗口、真实父子关系分支图、分支与文本筛选、最近 150 条记录、文件列表与历史 Diff |
-| Git 常用操作 | 暂存 / 取消暂存、提交、切换 / 创建分支、fetch、仅快进 pull、push、stash 保存 / 列表 / 恢复 / pop |
-| Git 其他操作 | merge、rebase、cherry-pick、revert、远程仓库、标签、blame、reflog 等可通过完整 Git 参数入口执行；交互式命令可打开项目终端 |
-| 冲突处理 | 当前 / 传入版本对照、逐块选择当前 / 传入 / 两者、手工编辑结果、三栏合并、普通与 diff3 冲突、应用并暂存；仍有冲突标记时拒绝“保存并暂存” |
-| Maven | 自动发现 `pom.xml`、多模块列表、坐标、属性替换、同一 POM 的 dependencyManagement、直接依赖及 scope；手动运行 Maven 任务 |
-| Spring | Boot 入口、Bean / 组件 / 配置类、HTTP 接口路径、application / bootstrap 配置文件；常见 Cloud/Feign、Data/Repository、Security、Cache、Transaction、Async/Scheduling、Kafka/Rabbit/JMS 注解索引 |
-| 项目内导航 | Ctrl+鼠标 / Ctrl+B / F12 查找源码定义；按 import、同包、当前文件排序，多个候选让你选择；Alt+Left 返回 |
-| 匹配项目风格 | 读取 `.editorconfig`；缺省检测 Tab/空格、缩进宽度和换行；保留编码/BOM；保存时匹配换行、行尾空白和末尾换行策略 |
-| 外部修改保护 | 切回窗口时同步当前未编辑文件；未保存的编辑会保留；保存前检查磁盘修改，覆盖前确认；F5 更新文件列表与源码索引 |
+| Ctrl+O | Open a project in a new window |
+| Shift twice / Ctrl+P | Search Everywhere |
+| Ctrl+N / Ctrl+Shift+N / Ctrl+Alt+Shift+N | Search types / files / symbols |
+| Ctrl+Shift+F | Find in project |
+| Ctrl+F / Ctrl+H / Ctrl+G | Find / replace / go to line in the editor |
+| Ctrl+B or Ctrl+click | Go to definition |
+| Alt+Left | Go back to the previous navigation point |
+| Ctrl+S / Ctrl+Alt+Y | Save / reload from disk |
+| Ctrl+D / Ctrl+/ / Ctrl+Alt+L | Duplicate line / toggle line comment / normalize indentation |
+| Ctrl+W / Ctrl+Tab / Ctrl+Shift+Tab | Close tab / next tab / previous tab |
+| Ctrl+K / Alt+0 | Open Commit and focus the message / changes list |
+| Ctrl+Enter / Ctrl+Shift+K | Commit from the Commit panel / preview push |
+| Ctrl+D / F4 in Commit | Show diff / open source |
+| F7 / Shift+F7 | Next / previous difference |
+| Alt+1 / Alt+7 / Alt+8 / Alt+9 | Project / Structure / Services / Git Log |
+| Alt+4 / Alt+F12 | Build or run output / terminal |
+| Ctrl+F9 / Shift+F10 | Compile / rerun the active Maven task |
+| Ctrl+Shift+F12 | Hide or restore tool windows |
 
-源码和 Git 凭据保留在本机；应用没有遥测、云端 AI 调用或自动上传代码的功能。用户主动执行 fetch、pull、push 或 Maven 任务时，相关工具会按项目配置访问网络。
+## Scope and resource limits
 
-## 关于“轻量”
+Idea Lite uses WPF, AvalonEdit, and the system Git executable. Browsing source and reviewing Git changes require no JVM. Java and basic Kotlin navigation use a bounded source index. Maven metadata comes from local POMs, and Spring discovery uses source annotations and configuration filenames. Compiler-level resolution, a full Maven dependency graph, and runtime Spring wiring are outside this scope.
 
-使用 **WPF + AvalonEdit + 系统 Git**。默认没有浏览器内核、Node 服务、JVM、Java Language Server 或全量依赖下载。普通代码浏览与 Git 审查不需要 Java 环境。
-
-界面右下角显示当前进程的工作集。以下为 v0.1.0 的开发测量记录，v0.2.0 请以本机显示为准。开发机上，打开随仓库提供的 8 文件 Spring 示例，初次观察约 **134 MB**；经过搜索、双栏 Diff、历史、Spring 视图及 UI 自动化检查后，观察到约 **180–210 MB**。这是 Windows 本机的观察值，包含 .NET/WPF，不代表所有机器的保证；Git/Maven 子进程不包含在该数字中，也没有与同一项目的 IDEA 做对照基准。
-
-便携版另一次测试使用 **2,000 个合成 Java 文件、10,000 个符号**：完成索引后观察到约 **193 MiB 工作集、161 MiB 专用内存**，窗口首次出现约 **0.69 秒**。窗口出现时间不代表索引全部完成；合成项目不能代表真实大仓库。测量使用 `Get-Process`，未主动清理工作集或强制 GC。
-
-为避免一次审查拖垮电脑，默认保留明确的上限：
-
-| 项目 | 上限 / 行为 |
+| Resource | Default limit |
 | --- | --- |
-| 文件列表 | 50,000 个；Git 仓库通过 `git ls-files` 尊重 `.gitignore` |
-| 源码索引 | 累计读取约 64 MiB / 80,000 个符号；索引单文件不超过 512 KiB；达到上限会提示 |
-| Maven POM | 最多 500 个；单个不超过 1 MiB；不读取外部 XML 实体 |
-| 打开的文档 | 12 个；优先关闭未修改的旧文档，保留未保存编辑 |
-| 文本编辑 | 单文件 4 MiB；二进制文件不进入文本编辑器 |
-| 双栏 Diff | 两侧总计 100 万字符 / 4 万行，超过限制提示使用外部 Git 工具 |
-| 项目内容搜索 | 单文件 512 KiB，最多 250 条；支持取消和有超时的正则 |
-| 命令输出 | 每个 stdout / stderr 最多 8 MiB，持续排空管道，超过上限明确报错 |
-| 大目录 | 默认忽略 `.git`、`.idea`、`node_modules`、`target`、`build`、`bin`、`obj`、`dist` 等 |
+| File list | 50,000 files |
+| Source index | About 64 MiB read, 80,000 symbols, 512 KiB per source file |
+| Maven POMs | 500 POMs, 1 MiB per file |
+| Open documents | 12, with unmodified documents eligible for automatic closing |
+| Text editor | 4 MiB per file |
+| Side-by-side diff | 1 million characters and 40,000 lines across both sides |
+| Project text search | 250 results, 512 KiB per file |
+| Captured command output | 8 MiB per stream |
 
-非 Git 目录会使用内置目录排除规则，不解释 `.gitignore`。已跟踪但位于上述构建目录中的文件也不会进入源码列表。索引只保留文件名和符号，内容搜索时再读文件；不会把整个项目文本常驻在内存里。
-
-可生成隔离的合成项目自行测量：
+The status bar displays the process working set. In a historical development run with 2,000 synthetic Java files and 10,000 symbols, the portable build used about 193 MiB of working set and 161 MiB of private memory after indexing. The window appeared after about 0.69 seconds. The figures are for the Idea Lite process on one Windows machine and exclude child processes. Use the script below to measure on your machine.
 
 ```powershell
 .\scripts\New-BenchmarkWorkspace.ps1 -Files 2000
-# 在 Idea Lite 中打开 D:\Codex\work\idea-lite-benchmark
+# Open D:\Codex\work\idea-lite-benchmark in Idea Lite
 Get-Process IdeaLite | Select-Object Id, WorkingSet64, PrivateMemorySize64
 ```
 
-## 常用快捷键
+## Build and test from source
 
-| 快捷键 | 操作 |
-| --- | --- |
-| Ctrl+O | 打开项目 |
-| 双击 Shift / Ctrl+P | 全局搜索文件和符号，支持文件名模糊匹配 |
-| Ctrl+N / Ctrl+Alt+Shift+N | 搜索类型 / 搜索方法与字段 |
-| Ctrl+Shift+N | 搜索文件 |
-| Ctrl+Shift+F | 项目内容搜索，可选正则和区分大小写 |
-| Ctrl+F / F3 / Shift+F3 | 当前文件查找 / 下一个 / 上一个 |
-| Ctrl+H | 当前文件按字面文本批量替换，区分大小写，可撤销 |
-| Ctrl+鼠标 / Ctrl+B / F12 | 项目内定义跳转 |
-| Ctrl+Alt+Left / Alt+Left | 返回上次跳转位置 |
-| Ctrl+G | 跳转到行号或 `行:列` |
-| Ctrl+S | 保存并匹配项目空白风格 |
-| Ctrl+Alt+L | 统一缩进中的 Tab / 空格，可撤销 |
-| Ctrl+D / Ctrl+/ | 编辑器中复制当前行 / 切换行注释 |
-| Ctrl+W / Ctrl+Tab / Ctrl+Shift+Tab | 关闭 / 下一个 / 上一个文档 |
-| Ctrl+K / Alt+0 | 打开左侧提交窗口并聚焦提交说明 / 改动列表 |
-| Ctrl+Enter / Ctrl+Shift+K | 在提交窗口提交勾选文件 / 推送预览 |
-| Alt+1 / Alt+9 / Alt+8 | 项目 / Git 日志 / 服务 |
-| Alt+7 / Alt+4 / Alt+F12 | 结构 / 运行输出 / 在系统终端打开项目 |
-| Ctrl+D / F4 | 改动列表显示 Diff / 打开源文件 |
-| F7 / Shift+F7 | 下一个 / 上一个差异 |
-| Ctrl+Shift+F12 | 收起 / 恢复两侧面板，给代码或 Diff 更多空间 |
-| Ctrl+滚轮 / F5 | 缩放编辑器字体 / 刷新项目索引和 Git |
-| Ctrl+Alt+Y | 从磁盘重新加载全部文件，保留未保存草稿 |
-
-## Git 与冲突工作流
-
-左侧 Commit 的“更改”包含 Git 已管理文件的修改、删除和新增，“未版本化文件”包含尚未加入 Git 的文件。勾选框决定本次提交范围，初始不勾选，也可以全选。提交使用勾选文件的工作区内容；未勾选的文件不会混入提交，其他已暂存文件仍保留在暂存区。合并提交需要包含全部合并更改。
-
-暂存操作保留在工具栏。双击文件显示工作区差异；只存在暂存修改时显示暂存差异；右键“查看已暂存差异”可单独检查 HEAD 与 index。Amend 会确认后改写上一次提交；推送窗口会展示目标引用。
-
-底部 Git 日志支持分支筛选、提交信息/作者/哈希搜索。合并提交的文件列表和历史 Diff 默认与第一个父提交比较，初始提交与空版本比较。日志的文本筛选会隐藏连接线，避免将隐藏的中间提交画成直接父子关系。历史文件列表显示最多 1,500 个条目；分支树显示筛选后的前 1,000 项，分支弹窗显示前 500 项。
-
-遇到文本冲突时，双击冲突文件进入三栏合并窗口。两侧对应 Git stage 2 / stage 3，中间保留当前工作文件和冲突标记，也支持已经手动处理过一部分的文件。每次“采用左侧”“采用右侧”或“保留两者”替换当前冲突块，中间可直接编辑并撤销。处理完点击“应用并暂存”，再通过 Git 菜单继续 merge 或 rebase。rebase 中 ours/theirs 遵循 Git 索引语义。
-
-**Git → 完整 Git 命令** 接受 `git` 后面的参数，参数直接传给进程，不经过 shell。例如：
-
-```text
-push -u origin main
-remote add origin https://github.com/you/project.git
-tag v0.1.0
-blame -- src/main/java/demo/Service.java
-rebase --continue
-merge --abort
-```
-
-reset、clean、强推等可能丢弃数据或改写历史的常见命令会再次确认。完整参数入口不是安全沙箱，交互式 rebase、凭据输入、复杂 submodule/worktree 操作建议在 **Git → 在终端中打开项目** 中执行。应用使用已有 Git 配置，不存储密码。网络认证需先在终端完成。
-
-## Java、Maven、Spring 的边界
-
-这一版采用有上限的源码索引。**它不提供 IntelliJ IDEA 级别的 Java 语义分析。**
-
-- 支持常见声明、注解和本地源码的查找；复杂泛型、重载、继承、Lombok 生成成员、JAR 中的定义、动态代理和类型推断没有编译器级保证。Kotlin 支持是基础扫描。
-- Spring 识别基于源码注解与配置文件名，不启动应用，不构建完整 Bean 依赖图，也不求值 SpEL、条件装配或所有组合注解。复杂/多路径映射需要查看源码确认。
-- Maven 显示本地 POM 信息和直接依赖，不解析完整依赖传递图、远程父 POM/BOM、所有 profile 或 effective-pom。依赖由父 POM/BOM 管理时会明确标注。
-- `.editorconfig` 支持常见的 `*`、`**`、`?`、`{a,b}` 模式和缩进、换行、字符集、末尾换行、行尾空白设置，不是完整 EditorConfig 规范实现。没有配置时优先保留当前文件的编码和风格，旧中文文件可识别 GBK。
-- Ctrl+Alt+L 统一缩进空白，不重新排版 Java 语句。需要项目的完整格式化规则时，可以手动执行已有的 Maven formatter / Spotless 任务。
-- 当前发布 Windows x64。没有调试器、运行配置系统、插件市场、语义补全、代码重构、分块暂存或二进制/删除冲突的图形合并器。常用 Git 操作有直接界面，其余由完整 Git 参数入口和项目终端补足。
-
-这些边界用于控制默认资源开销。后续方向是可选、显式启用的语言服务、代码折叠、语义补全、分块暂存；相关能力尚未实现。
-
-## 本地开发
-
-需要 Windows x64、[.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) 和 Git。
+Use Windows x64, the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0), and Git.
 
 ```powershell
 git clone https://github.com/keweizhuazuki/idea-lite.git
@@ -198,41 +126,29 @@ cd idea-lite
 dotnet restore IdeaLite.slnx --locked-mode
 dotnet build IdeaLite.slnx -c Release --no-restore
 dotnet run --project tests/IdeaLite.Tests -c Release --no-build
+dotnet run --project tests/IdeaLite.UiChecks -c Release --no-build
 dotnet run --project src/IdeaLite -- 'D:\code\your-project'
 ```
 
-核心行为/集成测试覆盖真实 Git 仓库中的暂存/未暂存、首次提交、中文和带空格路径、重命名删除、合并冲突、stash、本地远程推拉，以及编码、风格、搜索、外部修改保护、进程超时、实时输出、Windows 原生项目路径、Maven 命令参数传递和按文件提交范围保护。自动 WPF 检查使用临时命令脚本模拟构建，不运行实际 Maven；窗口检查会短暂显示测试窗口。测试不访问外部 Git 服务，失败会保留临时现场。
-
-当前源码在安装了 Git for Windows 的 Windows 上执行 41 项核心检查，以及 31 项 WPF 检查；额外传入 `--with-wsl --keep` 执行 3 项 WSL 参数传递、进程组停止和超时检查。`--keep` 保留临时现场，避免 WSL 刚退出时目录句柄释放的延迟影响清理。WPF 检查还覆盖 Java 分色、真实字体字形来源与行距、项目树层级和导航、细滚动条、Diff 总览跳转与字符级高亮、编辑改动色条、单击导航、Ctrl 悬停、非模态搜索、Amend 草稿保护，以及原生 Git Bash 多会话、中文与 ANSI、历史命令、Ctrl+C、缩放、进程清理和括号粘贴。既有构建、双语、Windows 凭据与 AI 生成回归仍保留。AI 接口测试使用本地 HTTP 模拟响应，不消耗 API 额度，不代表真实账号已联网验证。接口依据：[OpenAI](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)、[DeepSeek](https://api-docs.deepseek.com/)。
-
-“文件 → 打开项目”会把 Git 返回的路径规范化后传给系统文件夹选择器，避免 `D:/...` 路径触发 Windows Shell 的 `Value does not fall within the expected range`。发生其他异常时，错误窗口提供调用堆栈；设置目录内的 `last-error.log` 只保存异常类型和堆栈，不记录异常消息、命令输出或源码内容。
-
-Git 优先从 PATH 查找，再检查 Git for Windows 的常见安装目录。无法启动 Git、仓库访问失败和目录没有 Git 仓库会分别显示；应用不会通过初始化仓库或修改全局 Git 配置来掩盖识别错误。
-
-创建一个带提交历史和改动的演示仓库：
+The core tests use temporary local Git repositories. WPF checks briefly open test windows and use local fixtures for Maven output and AI responses. To include the WSL process checks in the core suite, pass `-- --with-wsl --keep`.
 
 ```powershell
 .\scripts\New-DemoWorkspace.ps1
-# 然后打开 D:\Codex\work\idea-lite-demo
-```
-
-一条命令构建、测试并打包两个版本：
-
-```powershell
+# Open D:\Codex\work\idea-lite-demo in Idea Lite
 .\scripts\Build.ps1
-# artifacts/IdeaLite-win-x64-framework.zip
-# artifacts/IdeaLite-win-x64-portable.zip
-# artifacts/SHA256SUMS.txt
+# Writes both ZIP packages and SHA256SUMS.txt to artifacts/
 ```
 
-脚本在存在 D 盘时将 SDK 用户目录、NuGet 缓存和可配置的临时目录放入 `D:\Codex`。所有依赖都有锁文件，CI 在 Windows 上构建并运行相同测试。界面布局设置和最近项目保存在 `D:\Codex\IdeaLite\workbench.json`；可用 `IDEALITE_CONFIG_DIR` 指定其他设置目录。
+The app stores layout and recent projects in `workbench.json` under its settings directory, normally `D:\Codex\IdeaLite` when the drive is available, or `%LOCALAPPDATA%\IdeaLite` otherwise. Set `IDEALITE_CONFIG_DIR` to use a different directory. For operation failures, the error window shows a stack trace. The local `last-error.log` records the exception type and stack trace.
 
-```text
-src/IdeaLite.Core/    Git、文件与编码、冲突、源码索引、Maven/Spring
-src/IdeaLite/         WPF 界面、AvalonEdit 编辑器、DiffPlex 差异
-tests/IdeaLite.Tests/ 本地集成测试执行器
-samples/spring-shop/ 可公开的合成 Java 示例
-scripts/             构建、打包和演示/性能测试项目生成
-```
+| Path | Contents |
+| --- | --- |
+| [src/IdeaLite.Core](src/IdeaLite.Core) | Git, encoding, conflict parsing, source indexing, Maven, and Spring |
+| [src/IdeaLite](src/IdeaLite) | WPF workbench, AvalonEdit editor, DiffPlex, and terminal |
+| [tests](tests) | Core integration and WPF checks |
+| [samples/spring-shop](samples/spring-shop/README.md) | Synthetic Java and Spring example |
+| [scripts](scripts) | Build, packaging, demo, and benchmark scripts |
 
-欢迎通过 [Issues](https://github.com/keweizhuazuki/idea-lite/issues) 提交真实使用场景，参与方式见 [CONTRIBUTING.md](CONTRIBUTING.md)。项目使用 [MIT License](LICENSE)，第三方组件见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。Idea Lite 是独立开源项目，与 JetBrains、IntelliJ IDEA 或 Spring 官方没有关联。
+See [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), and [Third-party notices](THIRD-PARTY-NOTICES.md). To report a usage issue, open a [GitHub issue](https://github.com/keweizhuazuki/idea-lite/issues).
+
+Idea Lite is an independent project released under the [MIT License](LICENSE). Its workbench layout takes inspiration from the [IntelliJ IDEA interface](https://www.jetbrains.com/help/idea/guided-tour-around-the-user-interface.html), [Commit window](https://www.jetbrains.com/help/idea/commit-and-push-changes.html), and [Git Log](https://www.jetbrains.com/help/idea/log-tab.html).

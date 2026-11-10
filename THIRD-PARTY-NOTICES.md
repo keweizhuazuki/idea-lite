@@ -1,5 +1,7 @@
 # Third-party notices
 
+[简体中文](THIRD-PARTY-NOTICES.zh-CN.md) · [Project README](README.md)
+
 Idea Lite is MIT licensed. It uses these open-source components:
 
 - **AvalonEdit 6.3.1.120**, copyright AvalonEdit Contributors — MIT. [Project and license](https://github.com/icsharpcode/AvalonEdit/blob/master/LICENSE).
