@@ -10,14 +10,16 @@ public sealed partial class GitService
     /// <summary>
     /// 提取勾选文件将提交的工作区内容；只读 Git，不改变索引或文件。
     /// </summary>
-    public async Task<CommitMessageContext> CommitContextAsync(IEnumerable<string> selectedPaths, string draft = "", bool amend = false, CancellationToken token = default)
+    public async Task<CommitMessageContext> CommitContextAsync(IEnumerable<string> selectedPaths, string draft = "", bool amend = false,
+        CancellationToken token = default, bool stagedOnly = false)
     {
         const int limit = 16_000;
-        var selected = selectedPaths.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        var status = await StatusAsync(token);
+        var selected = (stagedOnly ? status.Changes.Where(change => change.IsStaged).Select(change => change.Path) : selectedPaths)
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         if (selected.Length == 0 && !amend) throw new InvalidOperationException("请先勾选本次提交的文件。");
         if (selected.Length > 100) throw new InvalidOperationException("AI 单次最多分析 100 个文件，请缩小勾选范围。");
         foreach (var path in selected) FileService.SafePath(Root, path);
-        var status = await StatusAsync(token);
         var changes = status.Changes.Where(change => selected.Contains(change.Path, StringComparer.Ordinal)).ToArray();
         if (changes.Length != selected.Length) throw new InvalidOperationException("文件状态已经变化，请刷新改动列表后重新选择。");
         if (changes.Any(change => change.IsConflict)) throw new InvalidOperationException("请先解决勾选文件的冲突。");
@@ -37,7 +39,8 @@ public sealed partial class GitService
             if (remaining <= 0) return;
             text.Append(Clip(value, remaining));
         }
-        Append("Selected working-tree files (not just the index):\n" + string.Join('\n', changes.Select(change => $"{change.Index}{change.WorkTree} {change.Path}")) + "\n\n");
+        Append((stagedOnly ? "Selected staged files from the Git index:\n" : "Selected working-tree files (not just the index):\n") +
+            string.Join('\n', changes.Select(change => $"{change.Index}{(stagedOnly ? ' ' : change.WorkTree)} {change.Path}")) + "\n\n");
         if (amend)
         {
             Append("Prior commit to amend:\n" + Clip((await RunAsync(["log", "-1", "--format=%B"], token)).EnsureSuccess().Output, 1000));
@@ -46,14 +49,14 @@ public sealed partial class GitService
             Append(Clip(previous.Output, selected.Length > 0 ? 3500 : 12_000));
         }
         var parts = new List<string>();
-        var tracked = changes.Where(change => !change.IsUntracked && head).ToArray();
+        var tracked = changes.Where(change => stagedOnly || !change.IsUntracked && head).ToArray();
         if (tracked.Length > 0)
         {
             var paths = tracked.SelectMany(change => change.OriginalPath == null ? new[] { change.Path } : new[] { change.Path, change.OriginalPath }).Distinct(StringComparer.Ordinal);
-            var diff = (await RunAsync(new[] { "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--unified=3", "HEAD", "--" }.Concat(paths.Select(path => ":(literal)" + path)), token)).EnsureSuccess();
+            var diff = (await RunAsync(new[] { "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--unified=3", stagedOnly ? "--cached" : "HEAD", "--" }.Concat(paths.Select(path => ":(literal)" + path)), token)).EnsureSuccess();
             parts.AddRange(Regex.Split(diff.Output, @"(?m)(?=^diff --git )").Where(part => !string.IsNullOrWhiteSpace(part)));
         }
-        foreach (var change in changes.Where(change => change.IsUntracked || !head))
+        foreach (var change in changes.Where(change => !stagedOnly && (change.IsUntracked || !head)))
         {
             token.ThrowIfCancellationRequested();
             var header = "\nNew file: " + change.Path + "\n";

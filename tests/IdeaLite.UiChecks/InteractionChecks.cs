@@ -75,8 +75,8 @@ internal static class InteractionChecks
             File.WriteAllText(path, after);
             Wait(InvokeTask(owner, "RefreshGitAsync"));
             var changes = (ListBox)owner.FindName("ChangesList");
-            Until(() => changes.Items.Count == 1);
-            changes.SelectedIndex = 0;
+            Until(() => changes.Items.Count == 2);
+            changes.SelectedItem = changes.Items.OfType<ChangeItem>().Single(item => !item.Staged);
             Wait(InvokeTask(owner, "OpenSelectedChangeAsync"));
             owner.UpdateLayout(); pump();
 
@@ -398,6 +398,116 @@ internal static class InteractionChecks
             Until(() => editor.IsVisible && editor.Text.EndsWith("// Diff draft", StringComparison.Ordinal));
             Require(tabs.Children.Count == 1 && !File.ReadAllText(path).Contains("// Diff draft"),
                 "Closing the only Diff tab failed to preserve its unsaved source buffer");
+        }));
+        check("A failed push and branch checkout preserve staged, unstaged, untracked and editor edits", () => WithRepository((owner, git, root) =>
+        {
+            Wait(git.RunAsync(["config", "core.autocrlf", "false"]));
+            const string path = "src/Example.java";
+            string full = Path.Combine(root, path);
+            string original = File.ReadAllText(full);
+            Wait(git.RunAsync(["branch", "compatible"]));
+            Wait(git.RunAsync(["switch", "-c", "ignored-target"]));
+            File.WriteAllText(Path.Combine(root, "ignored.txt"), "branch content");
+            Wait(git.StageAsync(["ignored.txt"]));
+            Wait(git.CommitAsync("track file on other branch"));
+            Wait(git.RunAsync(["switch", "-"]));
+            File.AppendAllText(Path.Combine(root, ".git", "info", "exclude"), "\nignored.txt\n");
+            File.WriteAllText(Path.Combine(root, "ignored.txt"), "private scratch");
+            File.WriteAllText(full, original + "// staged\n");
+            Wait(git.StageAsync([path]));
+            File.AppendAllText(full, "// unstaged\n");
+            File.WriteAllText(Path.Combine(root, "untracked.txt"), "untracked work");
+            Wait(InvokeTask(owner, "OpenFileAsync", path, null, true));
+            var editor = (TextEditor)owner.FindName("Editor");
+            editor.AppendText("// unsaved draft\n");
+            string draft = editor.Text, disk = File.ReadAllText(full);
+            var before = git.StatusAsync(); Wait(before);
+            var rejected = (Task<bool>)InvokeTask(owner, "RunGitCommandAsync", (object)new[] { "push", "--", "missing-fixture-remote" });
+            Wait(rejected);
+            var after = git.StatusAsync(); Wait(after);
+            Require(!rejected.Result && editor.Text == draft && File.ReadAllText(full) == disk &&
+                before.Result.Changes.SequenceEqual(after.Result.Changes) && before.Result.Branch == after.Result.Branch,
+                "A failed push saved a draft, changed the Git index, or switched branches");
+            Wait(InvokeTask(owner, "SaveAsync", false));
+            disk = File.ReadAllText(full);
+            var blocked = (Task<bool>)InvokeTask(owner, "SwitchBranchAsync", (object)new[] { "--", "ignored-target" });
+            Wait(blocked);
+            Require(!blocked.Result && File.ReadAllText(Path.Combine(root, "ignored.txt")) == "private scratch",
+                "Checkout overwrote an ignored file");
+            var compatible = (Task<bool>)InvokeTask(owner, "SwitchBranchAsync", (object)new[] { "--", "compatible" });
+            Wait(compatible);
+            var result = git.StatusAsync(); Wait(result);
+            Require(compatible.Result && result.Result.Branch == "compatible" && File.ReadAllText(full) == disk &&
+                result.Result.Changes.Any(change => change.Path == path && change.IsStaged && change.HasWorkingChanges) &&
+                File.ReadAllText(Path.Combine(root, "untracked.txt")) == "untracked work", "Compatible checkout lost local changes");
+            Wait(git.RunAsync(["branch", "stash-target"]));
+            owner.Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
+                owner.OwnedWindows.Cast<Window>().Single(window => window.IsVisible).DialogResult = true);
+            Wait(InvokeTask(owner, "StashAndSwitchAsync", (object)new[] { "--", "stash-target" }));
+            var clean = git.StatusAsync(); Wait(clean);
+            Require(clean.Result.Branch == "stash-target" && clean.Result.Changes.Count == 0, "Stash checkout did not switch with a clean worktree");
+            var stash = git.RunAsync(["rev-parse", "refs/stash"]); Wait(stash);
+            var applied = git.RunAsync(["stash", "apply", "--index", "--", stash.Result.EnsureSuccess().Output.Trim()]); Wait(applied);
+            applied.Result.EnsureSuccess();
+            var restored = git.StatusAsync(); Wait(restored);
+            var restoredText = File.ReadAllText(full);
+            Require(restoredText == disk, $"Restored tracked content differs ({disk.Length} → {restoredText.Length}, equal ignoring line endings: " +
+                $"{restoredText.Replace("\r\n", "\n") == disk.Replace("\r\n", "\n")})");
+            Require(File.ReadAllText(Path.Combine(root, "untracked.txt")) == "untracked work", "Restoring the stash lost the untracked file");
+            Require(result.Result.Changes.SequenceEqual(restored.Result.Changes),
+                $"Restoring the stash changed staging: {string.Join(", ", result.Result.Changes)} → {string.Join(", ", restored.Result.Changes)}");
+        }));
+        check("Staged and unstaged Git rows show separate diffs and committing the index keeps the worktree edit", () => WithRepository((owner, git, root) =>
+        {
+            const string path = "src/Example.java";
+            string full = Path.Combine(root, path);
+            File.AppendAllText(full, "// staged\n");
+            string staged = File.ReadAllText(full);
+            Wait(git.StageAsync([path]));
+            File.AppendAllText(full, "// unstaged\n");
+            Wait(InvokeTask(owner, "RefreshGitAsync"));
+            var changes = (ListBox)owner.FindName("ChangesList");
+            var entries = changes.Items.OfType<ChangeItem>().Where(item => item.Change.Path == path).ToArray();
+            var index = entries.Single(item => item.Staged);
+            var worktree = entries.Single(item => !item.Staged);
+            Require(index.Group == "已暂存" && worktree.Group == "未暂存" && index.StatusCode == "M" && !index.CanInclude,
+                "The mixed file did not show independent index and worktree rows");
+            changes.SelectedItem = index;
+            Wait(InvokeTask(owner, "OpenSelectedChangeAsync"));
+            var right = (TextEditor)owner.FindName("NewEditor");
+            Require(right.IsReadOnly && right.Text == staged, "The index row opened working-tree text");
+            changes.SelectedItem = worktree;
+            Wait(InvokeTask(owner, "OpenSelectedChangeAsync"));
+            Require(!right.IsReadOnly && right.Text.Contains("// unstaged"), "The working-tree row did not open the current text");
+            var context = git.CommitContextAsync([], stagedOnly: true); Wait(context);
+            Require(context.Result.Changes.Contains("+// staged") && !context.Result.Changes.Contains("// unstaged"),
+                "The AI context included unstaged text in a staged commit");
+            ((TextBox)owner.FindName("CommitMessage")).Text = "fixture commit staged only";
+            Wait(InvokeTask(owner, "CommitStagedAsync"));
+            var committed = git.HeadTextAsync(path); Wait(committed);
+            var status = git.StatusAsync(); Wait(status);
+            Require(committed.Result == staged && File.ReadAllText(full).Contains("// unstaged") &&
+                status.Result.Changes.Any(change => change.Path == path && !change.IsStaged && change.HasWorkingChanges),
+                "Commit Staged included or lost the unstaged change");
+        }));
+        check("Git Log context menu cherry-picks the selected commit onto the current branch", () => WithRepository((owner, git, root) =>
+        {
+            Wait(git.RunAsync(["switch", "-c", "topic"]));
+            File.WriteAllText(Path.Combine(root, "Cherry.java"), "class Cherry {}\n");
+            Wait(git.StageAsync(["Cherry.java"]));
+            Wait(git.CommitAsync("fixture cherry-pick"));
+            Wait(git.RunAsync(["switch", "-"]));
+            Wait(InvokeTask(owner, "LoadHistoryAsync"));
+            var log = (ListBox)owner.FindName("LogList");
+            log.SelectedItem = log.Items.OfType<LogRow>().Single(row => row.Revision.Subject == "fixture cherry-pick");
+            owner.Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
+                owner.OwnedWindows.Cast<Window>().Single(window => window.IsVisible).DialogResult = true);
+            ((MenuItem)log.ContextMenu.Items[0]).RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            Until(() => File.Exists(Path.Combine(root, "Cherry.java")) && !(bool)typeof(MainWindow).GetField("_commandBusy", Flags)!.GetValue(owner)!);
+            var message = git.LastCommitMessageAsync(); Wait(message);
+            var status = git.StatusAsync(); Wait(status);
+            Require(message.Result == "fixture cherry-pick" && status.Result.Branch != "topic" && status.Result.Changes.Count == 0,
+                "The selected revision was not cherry-picked onto the current branch");
         }));
         check("Single clicks open source and diffs while commit checkboxes keep their selection behavior", () => WithRepository((owner, git, root) =>
         {

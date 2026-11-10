@@ -258,9 +258,10 @@
     <Style x:Key="BranchGroupItem" TargetType="GroupItem">
       <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="GroupItem"><Expander IsExpanded="True"><Expander.Header><TextBlock Text="{ui:TranslateBinding Name}" Foreground="{StaticResource Muted}" FontSize="12"/></Expander.Header><ItemsPresenter Margin="12,0,0,3"/></Expander></ControlTemplate></Setter.Value></Setter>
     </Style>
-    <DataTemplate x:Key="BranchRow"><Grid Height="27"><Grid.ColumnDefinitions><ColumnDefinition Width="22"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+    <DataTemplate x:Key="BranchRow"><Grid Height="27"><Grid.ColumnDefinitions><ColumnDefinition Width="22"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="15"/></Grid.ColumnDefinitions>
       <TextBlock Width="20" Foreground="#E6B64C"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Text" Value="⑂"/><Style.Triggers><DataTrigger Binding="{Binding Current}" Value="True"><Setter Property="Text" Value="◇"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
       <TextBlock Grid.Column="1" Text="{Binding Name}" TextTrimming="CharacterEllipsis"/><TextBlock Grid.Column="2" Text="{Binding Upstream}" TextTrimming="CharacterEllipsis" MaxWidth="130" FontSize="11" Foreground="{StaticResource Muted}" Margin="12,0,3,0"/>
+      <ui:IdeIcon Grid.Column="3" Kind="Right" Width="13" Height="13" Foreground="{StaticResource Muted}"/>
     </Grid></DataTemplate>
   </Application.Resources>
 </Application>

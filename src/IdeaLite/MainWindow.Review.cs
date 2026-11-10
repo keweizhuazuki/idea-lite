@@ -12,9 +12,10 @@ namespace IdeaLite;
 
 public sealed record ChangeItem(GitChange Change, string Group, bool Staged, CommitChoice Choice)
 {
-    public bool CanInclude => !Change.IsConflict;
+    public bool CanInclude => !Staged && !Change.IsConflict;
+    public string StatusCode => Staged ? Change.Index.ToString() : Change.IsConflict ? "!" : Change.WorkTree.ToString();
     public string Icon => MainWindow.FileIcon(Change.Path);
-    public string Color => FileColor(Change);
+    public string Color => Staged ? Change.Index switch { 'D' => "#F77669", 'A' => "#C3E887", _ => "#80CBC4" } : FileColor(Change);
     internal static string FileColor(GitChange change) => change.IsConflict || change.IsUntracked || change.Index == 'D' || change.WorkTree == 'D'
         ? "#F77669" : change.Index == 'A' ? "#C3E887" : "#80CBC4";
 }
@@ -78,16 +79,21 @@ public partial class MainWindow
                 choice.PropertyChanged += (_, _) => { if (!_bulkSelecting) UpdateCommitSelection(); };
                 _commitChoices.Add(change.Path, choice);
             }
-            if (change.IsConflict) choice.Included = false;
-            var group = change.IsConflict ? "合并冲突" : change.IsUntracked ? "未版本化文件" : "更改";
-            entries.Add(new(change, group, change.IsStaged && !change.HasWorkingChanges, choice));
+            if (change.IsStaged) entries.Add(new(change, "已暂存", true, new CommitChoice()));
+            if (change.HasWorkingChanges || change.IsConflict)
+                entries.Add(new(change, change.IsConflict ? "合并冲突" : change.IsUntracked ? "未版本化文件" : "未暂存", false, choice));
         }
+        _bulkSelecting = true;
+        try { foreach (var change in status.Changes.Where(change => change.IsConflict || !change.HasWorkingChanges)) _commitChoices[change.Path].Included = false; }
+        finally { _bulkSelecting = false; }
 
         var view = new ListCollectionView(entries);
         view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(ChangeItem.Group)));
         ChangesList.ItemsSource = view;
         foreach (var entry in entries)
-            if (selection.Contains((entry.Change.Path, entry.Staged))) ChangesList.SelectedItems.Add(entry);
+            if (selection.Contains((entry.Change.Path, entry.Staged)) ||
+                selection.Contains((entry.Change.Path, !entry.Staged)) && !(entry.Change.IsStaged && entry.Change.HasWorkingChanges))
+                ChangesList.SelectedItems.Add(entry);
         UiText.Set(GitSummary, "Text", entries.Count == 0 ? "工作区没有改动" : "");
         GitSummary.Visibility = Visible(entries.Count == 0);
         UpdateCommitSelection();
@@ -96,20 +102,25 @@ public partial class MainWindow
     private void UpdateCommitSelection()
     {
         if (SelectAllChanges == null) return;
-        var eligible = (_gitStatus?.Changes ?? []).Where(c => !c.IsConflict).Select(c => _commitChoices[c.Path]).ToArray();
+        var eligible = (_gitStatus?.Changes ?? []).Where(c => c.HasWorkingChanges && !c.IsConflict).Select(c => _commitChoices[c.Path]).ToArray();
         int count = eligible.Count(c => c.Included);
         SelectAllChanges.IsChecked = count == 0 ? false : count == eligible.Length ? true : null;
         UiText.Set(SelectionSummary, "Text", $"已选择 {count} / {eligible.Length} 个文件");
-        bool enabled = count > 0 || AmendCheck.IsChecked == true;
+        bool indexOnly = UsesStagedCommit();
+        UiText.Set(CommitSelectedButton, "Content", indexOnly ? "提交暂存区" : "提交");
+        UiText.Set(CommitPushButton, "Content", indexOnly ? "提交暂存区并推送…" : "提交并推送…");
+        bool enabled = count > 0 || AmendCheck.IsChecked == true || indexOnly;
         CommitSelectedButton.IsEnabled = CommitPushButton.IsEnabled = enabled && _aiGeneration == null;
     }
     private void SelectAllChangesClick(object sender, RoutedEventArgs e)
     {
         _bulkSelecting = true;
-        try { foreach (var change in (_gitStatus?.Changes ?? []).Where(c => !c.IsConflict)) _commitChoices[change.Path].Included = SelectAllChanges.IsChecked == true; }
+        try { foreach (var change in (_gitStatus?.Changes ?? []).Where(c => c.HasWorkingChanges && !c.IsConflict)) _commitChoices[change.Path].Included = SelectAllChanges.IsChecked == true; }
         finally { _bulkSelecting = false; }
         UpdateCommitSelection();
     }
+    private bool UsesStagedCommit() => AmendCheck.IsChecked != true && !_commitChoices.Values.Any(choice => choice.Included) &&
+        _gitStatus?.Changes.Any(change => change.IsStaged) == true;
     private async void AmendChanged(object sender, RoutedEventArgs e) => await Guard(UpdateAmendMessageAsync);
     private void ResetAmendMessage() { _amendRequest++; _amendDraft = _amendMessage = null; }
     private async Task UpdateAmendMessageAsync()
@@ -487,4 +498,35 @@ public partial class MainWindow
         if (_git != null && LogList.SelectedItem is LogRow row)
             ShowOutput("git show " + row.Revision.ShortHash, await _git.ShowCommitAsync(row.Revision.Hash));
     });
+
+    private void LogRightClick(object sender, MouseButtonEventArgs e)
+    {
+        if (ItemAt<ListBoxItem>(LogList, e.OriginalSource) is { } item) item.IsSelected = true;
+        else LogList.SelectedIndex = -1;
+    }
+
+    private async void LogCherryPickClick(object sender, RoutedEventArgs e)
+    {
+        if (LogList.SelectedItem is LogRow row) await Guard(() => CherryPickRevisionAsync(row.Revision));
+    }
+
+    private async Task CherryPickRevisionAsync(GitRevision revision)
+    {
+        var args = new List<string> { "cherry-pick" };
+        if (revision.Parents.Length > 1)
+        {
+            var parents = string.Join('\n', revision.Parents.Select((hash, index) => $"{index + 1}  {hash[..8]}"));
+            var value = Dialogs.Prompt(this, "Cherry-pick 合并提交", UiText.Current.Translate("请选择用于计算差异的父提交编号。") + "\n\n" + parents);
+            if (value == null) return;
+            if (!int.TryParse(value, out int parent) || parent < 1 || parent > revision.Parents.Length)
+            {
+                SetStatus("父提交编号无效。");
+                return;
+            }
+            args.AddRange(["--mainline", parent.ToString(System.Globalization.CultureInfo.InvariantCulture)]);
+        }
+        else if (!Dialogs.Confirm(this, UiText.Current.Translate("将这个提交应用到当前分支？") + $"\n\n{revision.ShortHash} {revision.Subject}")) return;
+        args.AddRange(["--", revision.Hash]);
+        await RunGitCommandAsync(args.ToArray());
+    }
 }

@@ -33,7 +33,8 @@ public partial class MainWindow
         if (_commandBusy) { SetStatus("另一个命令正在运行。"); return; }
         var paths = _commitChoices.Where(pair => pair.Value.Included).Select(pair => pair.Key).Order(StringComparer.Ordinal).ToArray();
         bool amend = AmendCheck.IsChecked == true;
-        if (paths.Length == 0 && !amend) { SetStatus("请先勾选本次提交的文件。"); return; }
+        bool indexOnly = UsesStagedCommit();
+        if (paths.Length == 0 && !amend && !indexOnly) { SetStatus("请先勾选本次提交的文件。"); return; }
         var provider = _layout.CommitAiProvider;
         var apiKey = _aiCredentials.Read(provider);
         if (string.IsNullOrWhiteSpace(apiKey))
@@ -51,15 +52,15 @@ public partial class MainWindow
         SetStatus("正在生成提交说明…再次点击 AI 按钮可取消。");
         try
         {
-            var context = await git.CommitContextAsync(paths, draft, amend, request.Token);
+            var context = await git.CommitContextAsync(paths, draft, amend, request.Token, indexOnly);
             var model = provider == AiProvider.OpenAI ? _layout.OpenAiCommitModel : _layout.DeepSeekCommitModel;
             var result = await _aiCommitService.GenerateAsync(provider, apiKey, context, _layout.CommitAiLanguage, model, request.Token, _layout.CommitAiPrompt);
             var message = result.Message;
             request.Token.ThrowIfCancellationRequested();
             var currentPaths = _commitChoices.Where(pair => pair.Value.Included).Select(pair => pair.Key).Order(StringComparer.Ordinal);
-            if (!ReferenceEquals(git, _git) || amend != (AmendCheck.IsChecked == true) || !paths.SequenceEqual(currentPaths))
+            if (!ReferenceEquals(git, _git) || amend != (AmendCheck.IsChecked == true) || indexOnly != UsesStagedCommit() || !paths.SequenceEqual(currentPaths))
             { SetStatus("项目或勾选文件已变化，请重新生成提交说明。"); return; }
-            var latest = await git.CommitContextAsync(paths, draft, amend, request.Token);
+            var latest = await git.CommitContextAsync(paths, draft, amend, request.Token, indexOnly);
             if (latest.Changes != context.Changes || latest.Branch != context.Branch || _documents.Any(document => document.Dirty && paths.Contains(Relative(document.File.Path))))
             { SetStatus("文件改动已变化，请重新生成提交说明。"); return; }
             if (CommitMessage.Text != draft)

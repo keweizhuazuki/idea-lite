@@ -373,7 +373,9 @@ public partial class MainWindow : Window
             FocusEditor();
         }
     }
-    private async Task RefreshGitAsync()
+    private Task RefreshGitAsync() => RefreshGitStatusAsync(refreshPreview: true);
+
+    private async Task RefreshGitStatusAsync(bool refreshPreview)
     {
         var git = _git;
         if (git == null || _refreshingGit) return;
@@ -390,12 +392,12 @@ public partial class MainWindow : Window
             await RefreshEditorBaselineAsync();
         }
         finally { _refreshingGit = false; }
-        if (_git != git) return;
+        if (_git != git || !refreshPreview) return;
         if (_showDiff && _preview?.Change != null)
         {
             var current = _gitStatus!.Changes.FirstOrDefault(c => c.Path == _preview.Path && !c.IsConflict);
             if (current != null)
-                await ShowPreviewAsync(DiffPreview.Local(current, _diffDocument == null && current.IsStaged && (!current.HasWorkingChanges || _preview.Staged)));
+                await ShowPreviewAsync(DiffPreview.Local(current, current.IsStaged && (!current.HasWorkingChanges || _preview.Staged)));
             else if (_diffDocument != null && !_gitStatus!.Changes.Any(change => change.Path == _preview.Path))
                 await ShowPreviewAsync(DiffPreview.Local(new GitChange(_preview.Path, null, ' ', 'M'), false));
             else await ClosePreviewAsync();
@@ -420,7 +422,8 @@ public partial class MainWindow : Window
         try { SetStatus(() => UiText.Current.Translate(title) + "…"); await action(_git); await RefreshGitAsync(); SetStatus(() => UiText.Current.Format($"{UiText.Current.Translate(title)}完成")); }
         finally { _commandBusy = false; }
     }
-    private string[] SelectedPaths() => ChangesList.SelectedItems.Cast<ChangeItem>().Select(item => item.Change).Distinct().SelectMany(c => c.OriginalPath == null ? new[] { c.Path } : new[] { c.Path, c.OriginalPath }).Distinct().ToArray();
+    private string[] SelectedPaths(bool staged) => ChangesList.SelectedItems.Cast<ChangeItem>().Where(item => item.Staged == staged)
+        .Select(item => item.Change).Distinct().SelectMany(c => c.OriginalPath == null ? new[] { c.Path } : new[] { c.Path, c.OriginalPath }).Distinct().ToArray();
 
     private async Task SearchAsync(string mode = "all", string initial = "")
     {
@@ -785,10 +788,10 @@ public partial class MainWindow : Window
     {
         if (ChangesList.SelectedItems.Cast<ChangeItem>().Any(item => item.Change.IsConflict))
             throw new InvalidOperationException("请先双击冲突文件，在合并窗口中应用结果。");
-        await GitOperationAsync("暂存", async git => { var paths = SelectedPaths(); if (paths.Length > 0) await git.StageAsync(paths); });
+        await GitOperationAsync("暂存", async git => { var paths = SelectedPaths(false); if (paths.Length > 0) await git.StageAsync(paths); });
     }
     private async void StageClick(object sender, RoutedEventArgs e) => await Guard(StageSelectionAsync);
-    private async void UnstageClick(object sender, RoutedEventArgs e) => await Guard(() => GitOperationAsync("取消暂存", async git => { var paths = SelectedPaths(); if (paths.Length > 0) await git.UnstageAsync(paths); }));
+    private async void UnstageClick(object sender, RoutedEventArgs e) => await Guard(() => GitOperationAsync("取消暂存", async git => { var paths = SelectedPaths(true); if (paths.Length > 0) await git.UnstageAsync(paths); }));
     private async void StageAllClick(object sender, RoutedEventArgs e) => await Guard(() => GitOperationAsync("全部暂存", async git =>
     {
         if (_gitStatus?.Changes.Any(c => c.IsConflict) == true) throw new InvalidOperationException("存在冲突，请先解决冲突。");
@@ -799,6 +802,7 @@ public partial class MainWindow : Window
         if (_git == null || _commandBusy) return false;
         _aiGeneration?.Cancel();
         bool amend = AmendCheck.IsChecked == true;
+        bool indexOnly = UsesStagedCommit();
         if (amend && !Dialogs.Confirm(this, "用勾选文件的内容修改上一次提交？这会改写该提交的 ID。")) return false;
         await GitOperationAsync("提交", async git =>
         {
@@ -809,7 +813,8 @@ public partial class MainWindow : Window
                 await SaveAsync();
                 if (doc.Dirty) throw new InvalidOperationException("勾选文件仍有未保存的编辑，请保存后重试。");
             }
-            await git.CommitSelectedAsync(paths, CommitMessage.Text, amend);
+            if (indexOnly) await git.CommitAsync(CommitMessage.Text);
+            else await git.CommitSelectedAsync(paths, CommitMessage.Text, amend);
             CommitMessage.Clear(); AmendCheck.IsChecked = false; ResetAmendMessage();
         });
         if (_bottom == BottomTool.Log) await LoadHistoryAsync();
@@ -823,7 +828,8 @@ public partial class MainWindow : Window
     });
     private async Task DiscardSelectionAsync() => await GitOperationAsync("回滚改动", async git =>
     {
-        var changes = ChangesList.SelectedItems.Cast<ChangeItem>().Select(c => c.Change).Distinct().ToArray();
+        var changes = ChangesList.SelectedItems.Cast<ChangeItem>().Where(item => !item.Staged && !item.Change.IsConflict)
+            .Select(item => item.Change).Distinct().ToArray();
         if (changes.Length == 0 || !Dialogs.Confirm(this, "丢弃以下工作区修改？未跟踪文件将被删除。\n\n" + string.Join('\n', changes.Select(c => c.Path)))) return;
         foreach (var change in changes)
         {
