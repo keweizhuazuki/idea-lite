@@ -48,9 +48,21 @@ internal static class Program
         {
             var filter = args.FirstOrDefault(argument => argument.StartsWith("--filter=", StringComparison.Ordinal));
             if (filter != null && !name.Contains(filter[9..], StringComparison.OrdinalIgnoreCase)) return;
-            try { check(); passed++; Console.WriteLine("PASS " + name); }
+            string? previousConfig = Environment.GetEnvironmentVariable("IDEALITE_CONFIG_DIR");
+            string config = System.IO.Path.Combine(previousConfig ?? System.IO.Path.GetTempPath(), "idea-lite-ui-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                Environment.SetEnvironmentVariable("IDEALITE_CONFIG_DIR", config);
+                check();
+                if (System.IO.Directory.Exists(config)) DeleteFixtureDirectory(config, Pump);
+                passed++; Console.WriteLine("PASS " + name);
+            }
             catch (Exception ex) { failed++; Console.WriteLine("FAIL " + name + ": " + ex); }
-            finally { UiText.Current.Language = "en"; }
+            finally
+            {
+                Environment.SetEnvironmentVariable("IDEALITE_CONFIG_DIR", previousConfig);
+                UiText.Current.Language = "en";
+            }
         }
         EditorVisualChecks.Run(Check, Pump);
         InteractionChecks.Run(Check, Pump);
@@ -263,10 +275,17 @@ internal static class Program
                 while (!task.IsCompleted && timer.Elapsed.TotalSeconds < 20) { Pump(); Thread.Sleep(10); }
                 Require(task.IsCompleted, "Workspace switch timed out"); task.GetAwaiter().GetResult();
             }
-            Open(first); Require(layout.MavenGoals == "-pl first compile", "Project task was not restored");
-            Open(second); Require(layout.MavenGoals == "test", "Previous project's module arguments leaked into another workspace");
-            Open(first); Require(layout.MavenGoals == "-pl first compile", "Returning to the project lost its task");
-            workbench.Close(); System.IO.Directory.Delete(directory, true);
+            try
+            {
+                Open(first); Require(layout.MavenGoals == "-pl first compile", "Project task was not restored");
+                Open(second); Require(layout.MavenGoals == "test", "Previous project's module arguments leaked into another workspace");
+                Open(first); Require(layout.MavenGoals == "-pl first compile", "Returning to the project lost its task");
+            }
+            finally
+            {
+                workbench.Close();
+                DeleteFixtureDirectory(directory, Pump);
+            }
         });
         Check("Maven lifecycle streams, reports failure and cancels without blocking the dispatcher", () =>
         {
@@ -466,6 +485,21 @@ internal static class Program
     private static void Require(bool condition, string message) { if (!condition) throw new Exception(message); }
     [System.Runtime.InteropServices.DllImport("shell32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, PreserveSig = true)]
     private static extern int SHCreateItemFromParsingName(string path, nint bindContext, ref Guid interfaceId, out nint item);
+    internal static void DeleteFixtureDirectory(string directory, Action pump)
+    {
+        // Windows can briefly hold a handle after the fixture closes its window or child processes.
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        while (true)
+        {
+            try { System.IO.Directory.Delete(directory, true); return; }
+            catch (System.IO.IOException ex) when (timer.Elapsed < TimeSpan.FromSeconds(2) && (ex.HResult & 0xffff) is 32 or 33)
+            {
+                pump();
+                Thread.Sleep(50);
+            }
+        }
+    }
+
     private static void Pump()
     {
         var frame = new DispatcherFrame();
